@@ -1,0 +1,114 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="MultiPlayerAll.MainWindow"
+        Title="MultiPlayer" Width="1200" Height="600"
+        WindowStartupLocation="CenterScreen"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="NoChrome"
+        ExtendClientAreaTitleBarHeightHint="30"
+        Background="#222222">
+
+    <Grid ColumnDefinitions="300,*">
+
+        <!-- Left Panel: Search and Video List -->
+        <Grid Grid.Column="0" Margin="10" RowDefinitions="Auto,Auto,*">
+
+            <TextBox x:Name="SearchTextBox" Height="30" Margin="0,30,0,10" Grid.Row="0"
+                     Watermark="Search videos..." KeyDown="SearchTextBox_KeyDown"/>
+
+            <Grid Grid.Row="1" Margin="0,0,0,10" ColumnDefinitions="Auto,*,Auto,Auto">
+                <StackPanel Orientation="Horizontal" Grid.Column="0" Spacing="5">
+                    <Button x:Name="SearchButton" Content="Search" Height="30" Width="75" Click="SearchButton_Click"/>
+                    <Button x:Name="ClearButton" Content="Clear" Height="30" Width="75" Click="ClearButton_Click"/>
+                </StackPanel>
+                <Button x:Name="OpenFileButton" Content="Open File" Height="30" Margin="10,0,0,0"
+                        HorizontalAlignment="Right" Grid.Column="2" Click="OpenFileButton_Click"/>
+                <Button x:Name="ChooseFileButton" Content="Choose File" Height="30"
+                        HorizontalAlignment="Right" Grid.Column="3" Click="ChooseFileButton_Click"/>
+            </Grid>
+
+            <DataGrid x:Name="VideoDataGrid" Grid.Row="2"
+                      AutoGenerateColumns="False" CanUserResizeColumns="True"
+                      IsReadOnly="True" SelectionMode="Single">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Video" Binding="{Binding FileName}" Width="*"/>
+                </DataGrid.Columns>
+            </DataGrid>
+        </Grid>
+
+        <!-- Main Content Area -->
+        <Grid Grid.Column="1" RowDefinitions="30,Auto,Auto,Auto,*">
+
+            <!-- Custom Title Bar -->
+            <Grid Grid.Row="0" Background="#333333" PointerPressed="TitleBar_PointerPressed">
+                <TextBlock Text="MultiPlayer" Foreground="White" FontSize="14" FontWeight="Bold"
+                           Margin="10,0,0,0" VerticalAlignment="Center"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,10,0" Spacing="0">
+                    <Button Content="―" FontSize="14" Width="30" Height="30"
+                            Background="Transparent" BorderThickness="0" Click="MinimizeButton_Click"/>
+                    <Button x:Name="MaximizeRestoreButton" Content="☐" FontSize="14" Width="30" Height="30"
+                            Background="Transparent" BorderThickness="0" Click="MaximizeRestoreButton_Click"/>
+                    <Button Content="✕" FontSize="14" Width="30" Height="30"
+                            Background="Transparent" BorderThickness="0" Click="CloseButton_Click"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Control Panel -->
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="10" Spacing="10">
+                <TextBlock Text="Windows" Foreground="White" VerticalAlignment="Center"/>
+                <ComboBox x:Name="NumWindowsComboBox" Width="80" SelectionChanged="NumWindowsComboBox_SelectionChanged">
+                    <ComboBoxItem Content="1"/>
+                    <ComboBoxItem Content="2"/>
+                    <ComboBoxItem Content="4"/>
+                    <ComboBoxItem Content="9"/>
+                </ComboBox>
+                <Button x:Name="PlayPauseButton" Content="Play/Pause" Width="100" Click="PlayPauseButton_Click"/>
+                <Button x:Name="StopButton" Content="Stop" Width="60" Click="StopButton_Click"/>
+                <Button Content="&lt;&lt;" Width="30" Click="SpeedDownButton_Click"/>
+                <TextBlock x:Name="SpeedLabel" Text="1x" Width="30" VerticalAlignment="Center"
+                           Foreground="White" TextAlignment="Center"/>
+                <Button Content="&gt;&gt;" Width="30" Click="SpeedUpButton_Click"/>
+                <Button x:Name="SyncButton" Content="Sync" Width="60" Click="SyncButton_Click"/>
+                <Button x:Name="MuteButton" Content="Mute" Width="60" Click="MuteButton_Click"/>
+            </StackPanel>
+
+            <!-- Skip Buttons Row -->
+            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="10,0,10,0" Spacing="2">
+                <Button Content="-60" Tag="-60" Height="22" Width="35" Click="SkipButton_Click"/>
+                <Button Content="-30" Tag="-30" Height="22" Width="35" Click="SkipButton_Click"/>
+                <Button Content="-15" Tag="-15" Height="22" Width="35" Click="SkipButton_Click"/>
+                <Button Content="-5" Tag="-5" Height="22" Width="30" Click="SkipButton_Click"/>
+                <Button Content="-1" Tag="-1" Height="22" Width="30" Click="SkipButton_Click"/>
+                <Button Content="+1" Tag="1" Height="22" Width="30" Click="SkipButton_Click"/>
+                <Button Content="+5" Tag="5" Height="22" Width="30" Click="SkipButton_Click"/>
+                <Button Content="+15" Tag="15" Height="22" Width="35" Click="SkipButton_Click"/>
+                <Button Content="+30" Tag="30" Height="22" Width="35" Click="SkipButton_Click"/>
+                <Button Content="+60" Tag="60" Height="22" Width="35" Click="SkipButton_Click"/>
+            </StackPanel>
+
+            <!-- Slider -->
+            <Slider x:Name="PositionSlider" Grid.Row="3" Margin="10,5"
+                    Minimum="0" Maximum="100"
+                    ValueChanged="PositionSlider_ValueChanged"/>
+
+            <!-- Video Display Container -->
+            <Grid x:Name="VideoContainer" Grid.Row="4" Background="Black" ClipToBounds="True">
+                <!-- Download overlay (hidden by default) -->
+                <Border x:Name="DownloadOverlay" IsVisible="False" Background="#DD222222" ZIndex="100"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        CornerRadius="8" Padding="30,20">
+                    <StackPanel Spacing="10" MinWidth="350">
+                        <TextBlock x:Name="DownloadStatusText" Text="Downloading..."
+                                   Foreground="White" FontSize="16" HorizontalAlignment="Center"/>
+                        <ProgressBar x:Name="DownloadProgressBar" Minimum="0" Maximum="100"
+                                     Height="20" Foreground="DodgerBlue"/>
+                        <TextBlock x:Name="DownloadDetailText" Text=""
+                                   Foreground="Gray" FontSize="12" HorizontalAlignment="Center"/>
+                        <Button x:Name="CancelDownloadButton" Content="Cancel" Width="80"
+                                HorizontalAlignment="Center" Click="CancelDownloadButton_Click"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>
