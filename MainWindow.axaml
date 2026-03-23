@@ -70,6 +70,10 @@
                 <Button Content="&gt;&gt;" Width="30" Click="SpeedUpButton_Click"/>
                 <Button x:Name="SyncButton" Content="Sync" Width="60" Click="SyncButton_Click"/>
                 <Button x:Name="MuteButton" Content="Mute" Width="60" Click="MuteButton_Click"/>
+                <Button x:Name="VolumeDownButton" Content="Vol-" Width="50" Click="VolumeDownButton_Click"/>
+                <TextBlock x:Name="VolumeLabel" Text="100" Width="35" VerticalAlignment="Center"
+                           Foreground="White" TextAlignment="Center"/>
+                <Button x:Name="VolumeUpButton" Content="Vol+" Width="50" Click="VolumeUpButton_Click"/>
             </StackPanel>
 
             <!-- Skip Buttons Row -->

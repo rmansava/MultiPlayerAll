@@ -23,14 +23,22 @@ namespace MultiPlayerAll;
 public partial class MainWindow : Window
 {
     private const int MaxWindows = 9;
-    private const int AudibleVolume = 100;
-    private const int SilentVolume = 0;
+    private const uint SilentAudioSampleRate = 48000;
+    private const uint SilentAudioChannels = 2;
+    private const string SilentAudioFormat = "S16N";
     private readonly VideoView[] videoViews = new VideoView[MaxWindows];
     private readonly MediaPlayer[] mediaPlayers = new MediaPlayer[MaxWindows];
     private readonly TextBlock[] timeLabels = new TextBlock[MaxWindows];
     private readonly SemaphoreSlim loadSemaphore = new(1, 1);
+    private readonly bool[] playerHasAudio = new bool[MaxWindows];
+    private readonly MediaPlayer.LibVLCAudioPlayCb silentAudioPlayCb;
+    private readonly MediaPlayer.LibVLCAudioPauseCb silentAudioPauseCb;
+    private readonly MediaPlayer.LibVLCAudioResumeCb silentAudioResumeCb;
+    private readonly MediaPlayer.LibVLCAudioFlushCb silentAudioFlushCb;
+    private readonly MediaPlayer.LibVLCAudioDrainCb silentAudioDrainCb;
 
-    private LibVLC? libVLC;
+    private LibVLC? libVLC; // for probing/parsing
+    private readonly LibVLC?[] playerLibVLCs = new LibVLC?[MaxWindows];
     private Grid? activeVideoGrid;
     private DispatcherTimer? timer;
     private long totalDurationMs;
@@ -43,6 +51,7 @@ public partial class MainWindow : Window
     private bool isMuted = true;
     private bool isScrubbing;
     private bool isUpdatingSliderFromPlayback;
+    private int currentVolume = 100;
     private DateTime[] lastLeftClickTimes = new DateTime[MaxWindows];
     private int loadVersion;
     private long[] startPositions = new long[MaxWindows];
@@ -59,6 +68,12 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
+        silentAudioPlayCb = SilentAudioPlay;
+        silentAudioPauseCb = SilentAudioPause;
+        silentAudioResumeCb = SilentAudioResume;
+        silentAudioFlushCb = SilentAudioFlush;
+        silentAudioDrainCb = SilentAudioDrain;
+
         Core.Initialize();
         libVLC = new LibVLC();
 
@@ -67,6 +82,7 @@ public partial class MainWindow : Window
         timer.Start();
 
         MuteButton.Content = "UnMute";
+        UpdateVolumeLabel();
         NumWindowsComboBox.SelectedIndex = 2; // default to 4 windows
 
         VideoDataGrid.DoubleTapped += VideoDataGrid_DoubleTapped;
@@ -90,6 +106,26 @@ public partial class MainWindow : Window
         {
             // API not available - user can still open local files
         }
+    }
+
+    private static void SilentAudioPlay(IntPtr data, IntPtr samples, uint count, long pts)
+    {
+    }
+
+    private static void SilentAudioPause(IntPtr data, long pts)
+    {
+    }
+
+    private static void SilentAudioResume(IntPtr data, long pts)
+    {
+    }
+
+    private static void SilentAudioFlush(IntPtr data, long pts)
+    {
+    }
+
+    private static void SilentAudioDrain(IntPtr data)
+    {
     }
 
     // ── Download & Play ─────────────────────────────────────────────────
@@ -233,6 +269,7 @@ public partial class MainWindow : Window
                 timeLabels[i].Text = $"{ts.Hours:00}:{ts.Minutes:00}:{ts.Seconds:00}";
             }
         }
+
     }
 
     // ── Open / Load Video ──────────────────────────────────────────────
@@ -291,6 +328,7 @@ public partial class MainWindow : Window
         try
         {
             isVideoLoaded = false;
+            selectedVideoFile = videoPath;
             currentWindowIndex = 0;
             EnsureVideoGrid();
             EnsureVideoViews();
@@ -318,13 +356,11 @@ public partial class MainWindow : Window
 
             for (int i = 0; i < numWindows; i++)
             {
-                var media = new Media(libVLC, videoPath, FromType.FromPath);
-                var player = new MediaPlayer(media) { Mute = true };
-                player.Volume = AudibleVolume;
-                player.EndReached += MediaPlayer_EndReached;
-                mediaPlayers[i] = player;
+                var shouldHaveAudio = !isMuted && i == 0;
+                mediaPlayers[i] = CreateMediaPlayer(videoPath, i);
+                playerHasAudio[i] = shouldHaveAudio;
                 if (videoViews[i] != null)
-                    videoViews[i].MediaPlayer = player;
+                    videoViews[i].MediaPlayer = mediaPlayers[i];
             }
 
             if (numWindows > 0) SetCurrentWindow(0);
@@ -351,12 +387,16 @@ public partial class MainWindow : Window
                 }
             }
 
+
             await Task.Delay(200);
             if (currentLoadVersion != loadVersion)
                 return;
 
             for (int i = 0; i < numWindows; i++)
                 mediaPlayers[i]?.Play();
+
+            // Wait for audio pipelines to initialize before routing
+            await Task.Delay(300);
 
             isVideoLoaded = true;
             ApplyAudioRouting();
@@ -468,6 +508,8 @@ public partial class MainWindow : Window
             if (videoViews[i] != null)
                 videoViews[i].MediaPlayer = null;
 
+            playerHasAudio[i] = false;
+
             if (mediaPlayers[i] != null)
             {
                 mediaPlayers[i].EndReached -= MediaPlayer_EndReached;
@@ -475,7 +517,42 @@ public partial class MainWindow : Window
                 mediaPlayers[i].Dispose();
                 mediaPlayers[i] = null!;
             }
+
+            playerLibVLCs[i]?.Dispose();
+            playerLibVLCs[i] = null;
         }
+    }
+
+    private void DisposeAudioPlayer()
+    {
+        // No-op — audio comes from video players directly
+    }
+
+    private MediaPlayer CreateMediaPlayer(string videoPath, int index)
+    {
+        playerLibVLCs[index]?.Dispose();
+        playerLibVLCs[index] = new LibVLC("--aout=directsound");
+
+        var media = new Media(playerLibVLCs[index], videoPath, FromType.FromPath);
+        var player = new MediaPlayer(media);
+        player.EndReached += MediaPlayer_EndReached;
+
+        // Volume must be applied after audio pipeline starts
+        player.Playing += (s, e) =>
+        {
+            Dispatcher.UIThread.Post(() => ApplyAudioForPlayer(index));
+        };
+
+        media.Dispose();
+        return player;
+    }
+
+    private void ApplyAudioForPlayer(int index)
+    {
+        if (mediaPlayers[index] == null) return;
+        var targetVol = (index == currentWindowIndex && !isMuted) ? currentVolume : 0;
+        mediaPlayers[index].Volume = targetVol;
+        AudioLog($"ApplyAudioForPlayer({index}): targetVol={targetVol} actualVol={mediaPlayers[index].Volume}");
     }
 
     // ── Window Selection ───────────────────────────────────────────────
@@ -506,10 +583,62 @@ public partial class MainWindow : Window
             if (mediaPlayers[i] == null)
                 continue;
 
-            var isAudible = !isMuted && i == currentWindowIndex;
-            mediaPlayers[i].Mute = !isAudible;
-            mediaPlayers[i].Volume = isAudible ? AudibleVolume : SilentVolume;
+            if (i == currentWindowIndex && !isMuted)
+            {
+                mediaPlayers[i].Volume = currentVolume;
+                AudioLog($"Player {i}: SET Volume={currentVolume} ACTIVE. IsPlaying={mediaPlayers[i].IsPlaying} AudioTrack={mediaPlayers[i].AudioTrack}/{mediaPlayers[i].AudioTrackCount} ActualVol={mediaPlayers[i].Volume}");
+            }
+            else
+            {
+                mediaPlayers[i].Volume = 0;
+                AudioLog($"Player {i}: SET Volume=0. IsPlaying={mediaPlayers[i]?.IsPlaying} ActualVol={mediaPlayers[i]?.Volume}");
+            }
         }
+    }
+
+    private void ReplacePlayerForAudioMode(int index, bool shouldHaveAudio)
+    {
+        if (mediaPlayers[index] == null || string.IsNullOrEmpty(selectedVideoFile))
+            return;
+
+        var previousPlayer = mediaPlayers[index];
+        var targetTime = previousPlayer.Time;
+        var shouldPlay = previousPlayer.IsPlaying;
+        var rate = previousPlayer.Rate;
+
+        var replacement = CreateMediaPlayer(selectedVideoFile, index);
+        playerHasAudio[index] = shouldHaveAudio;
+        mediaPlayers[index] = replacement;
+
+        if (videoViews[index] != null)
+            videoViews[index].MediaPlayer = replacement;
+
+        previousPlayer.EndReached -= MediaPlayer_EndReached;
+        previousPlayer.Stop();
+        previousPlayer.Dispose();
+
+        replacement.Play();
+        replacement.SetRate(rate);
+
+        _ = RestorePlayerStateAfterSwap(index, replacement, targetTime, shouldPlay, rate);
+    }
+
+    private async Task RestorePlayerStateAfterSwap(int index, MediaPlayer replacement, long targetTime, bool shouldPlay, float rate)
+    {
+        await Task.Delay(250);
+        if (mediaPlayers[index] != replacement)
+            return;
+
+        if (targetTime >= 0)
+            replacement.Time = targetTime;
+
+        replacement.SetRate(rate);
+        replacement.Volume = currentVolume;
+
+        if (shouldPlay)
+            replacement.Play();
+        else
+            replacement.Pause();
     }
 
     private void ToggleExpandedWindow(int index)
@@ -604,18 +733,21 @@ public partial class MainWindow : Window
     {
         for (int i = 0; i < numWindows; i++)
             mediaPlayers[i]?.Play();
+        ApplyAudioRouting();
     }
 
     private void PauseAll()
     {
         for (int i = 0; i < numWindows; i++)
             mediaPlayers[i]?.Pause();
+
     }
 
     private void StopButton_Click(object? sender, RoutedEventArgs e)
     {
         for (int i = 0; i < numWindows; i++)
             mediaPlayers[i]?.Stop();
+
     }
 
     private void SyncButton_Click(object? sender, RoutedEventArgs e)
@@ -640,6 +772,7 @@ public partial class MainWindow : Window
                 timeLabels[i].Text = $"{ts.Hours:00}:{ts.Minutes:00}:{ts.Seconds:00}";
             }
         }
+
     }
 
     // ── Speed ──────────────────────────────────────────────────────────
@@ -668,8 +801,16 @@ public partial class MainWindow : Window
 
     // ── Mute ───────────────────────────────────────────────────────────
 
+    private static readonly string AudioLogPath = Path.Combine(Path.GetTempPath(), "MultiPlayerAll", "audio.log");
+
+    private static void AudioLog(string msg)
+    {
+        File.AppendAllText(AudioLogPath, $"{DateTime.Now:HH:mm:ss.fff} {msg}\n");
+    }
+
     private void MuteButton_Click(object? sender, RoutedEventArgs e)
     {
+        AudioLog($"MuteButton clicked. isMuted was {isMuted}");
         if (isMuted)
         {
             isMuted = false;
@@ -680,8 +821,30 @@ public partial class MainWindow : Window
             isMuted = true;
             MuteButton.Content = "UnMute";
         }
-
+        AudioLog($"isMuted now {isMuted}, calling ApplyAudioRouting");
         ApplyAudioRouting();
+    }
+
+    private void VolumeDownButton_Click(object? sender, RoutedEventArgs e)
+    {
+        SetVolume(currentVolume - 10);
+    }
+
+    private void VolumeUpButton_Click(object? sender, RoutedEventArgs e)
+    {
+        SetVolume(currentVolume + 10);
+    }
+
+    private void SetVolume(int volume)
+    {
+        currentVolume = Math.Clamp(volume, 0, 200);
+        UpdateVolumeLabel();
+        ApplyAudioRouting();
+    }
+
+    private void UpdateVolumeLabel()
+    {
+        VolumeLabel.Text = currentVolume.ToString();
     }
 
     // ── Skip ───────────────────────────────────────────────────────────
@@ -700,6 +863,7 @@ public partial class MainWindow : Window
                     mediaPlayers[i].Time = newTimeMs;
                 }
             }
+
         }
     }
 
@@ -755,6 +919,7 @@ public partial class MainWindow : Window
                 timeLabels[i].Text = $"{ts.Hours:00}:{ts.Minutes:00}:{ts.Seconds:00}";
             }
         }
+
     }
 
     private void MediaPlayer_EndReached(object? sender, EventArgs e)
@@ -781,6 +946,7 @@ public partial class MainWindow : Window
                 timeLabels[i].Text = $"{ts.Hours:00}:{ts.Minutes:00}:{ts.Seconds:00}";
             }
         }
+
     }
 
     // ── Num Windows ────────────────────────────────────────────────────
@@ -897,6 +1063,7 @@ public partial class MainWindow : Window
         }
 
         DisposeMediaPlayers();
+        DisposeAudioPlayer();
 
         libVLC?.Dispose();
         httpClient.Dispose();
