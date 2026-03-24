@@ -16,15 +16,15 @@
             <TextBox x:Name="SearchTextBox" Height="30" Margin="0,30,0,10" Grid.Row="0"
                      Watermark="Search videos..." KeyDown="SearchTextBox_KeyDown"/>
 
-            <Grid Grid.Row="1" Margin="0,0,0,10" ColumnDefinitions="Auto,*,Auto,Auto">
+            <Grid Grid.Row="1" Margin="0,0,0,10" ColumnDefinitions="Auto,Auto,Auto">
                 <StackPanel Orientation="Horizontal" Grid.Column="0" Spacing="5">
                     <Button x:Name="SearchButton" Content="Search" Height="30" Width="75" Click="SearchButton_Click"/>
                     <Button x:Name="ClearButton" Content="Clear" Height="30" Width="75" Click="ClearButton_Click"/>
                 </StackPanel>
                 <Button x:Name="OpenFileButton" Content="Open File" Height="30" Margin="10,0,0,0"
-                        HorizontalAlignment="Right" Grid.Column="2" Click="OpenFileButton_Click"/>
-                <Button x:Name="ChooseFileButton" Content="Choose File" Height="30"
-                        HorizontalAlignment="Right" Grid.Column="3" Click="ChooseFileButton_Click"/>
+                        Grid.Column="1" Click="OpenFileButton_Click"/>
+                <Button x:Name="ChooseFileButton" Content="Choose File" Height="30" Margin="5,0,0,0"
+                        Grid.Column="2" Click="ChooseFileButton_Click"/>
             </Grid>
 
             <DataGrid x:Name="VideoDataGrid" Grid.Row="2"

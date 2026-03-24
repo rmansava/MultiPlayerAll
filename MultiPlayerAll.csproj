@@ -14,21 +14,11 @@
     <PackageReference Include="Avalonia.Desktop" Version="11.2.3" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3" />
     <PackageReference Include="Avalonia.Controls.DataGrid" Version="11.2.3" />
-    <PackageReference Include="LibVLCSharp" Version="3.9.1" />
-    <PackageReference Include="LibVLCSharp.Avalonia" Version="3.9.1" />
   </ItemGroup>
 
-  <!-- Platform-specific VLC runtimes -->
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.21" />
-  </ItemGroup>
-
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
-    <PackageReference Include="VideoLAN.LibVLC.Linux" Version="3.0.21" />
-  </ItemGroup>
-
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
-    <PackageReference Include="VideoLAN.LibVLC.Mac" Version="3.0.21" />
+  <!-- Copy libmpv-2.dll to output -->
+  <ItemGroup>
+    <None Include="libmpv-2.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

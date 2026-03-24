@@ -15,52 +15,40 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
-using LibVLCSharp.Avalonia;
-using LibVLCSharp.Shared;
 
 namespace MultiPlayerAll;
 
 public partial class MainWindow : Window
 {
     private const int MaxWindows = 9;
-    private const uint SilentAudioSampleRate = 48000;
-    private const uint SilentAudioChannels = 2;
-    private const string SilentAudioFormat = "S16N";
-    private readonly VideoView[] videoViews = new VideoView[MaxWindows];
-    private readonly MediaPlayer[] mediaPlayers = new MediaPlayer[MaxWindows];
-    private readonly TextBlock[] timeLabels = new TextBlock[MaxWindows];
-    private readonly SemaphoreSlim loadSemaphore = new(1, 1);
-    private readonly bool[] playerHasAudio = new bool[MaxWindows];
-    private readonly MediaPlayer.LibVLCAudioPlayCb silentAudioPlayCb;
-    private readonly MediaPlayer.LibVLCAudioPauseCb silentAudioPauseCb;
-    private readonly MediaPlayer.LibVLCAudioResumeCb silentAudioResumeCb;
-    private readonly MediaPlayer.LibVLCAudioFlushCb silentAudioFlushCb;
-    private readonly MediaPlayer.LibVLCAudioDrainCb silentAudioDrainCb;
 
-    private LibVLC? libVLC; // for probing/parsing
-    private readonly LibVLC?[] playerLibVLCs = new LibVLC?[MaxWindows];
+    private readonly MpvVideoView[] videoViews = new MpvVideoView[MaxWindows];
+    private readonly MpvPlayer?[] players = new MpvPlayer?[MaxWindows];
+    private readonly TextBlock[] timeLabels = new TextBlock[MaxWindows];
+    private readonly Control[] videoPanels = new Control[MaxWindows];
+    private readonly SemaphoreSlim loadSemaphore = new(1, 1);
+
     private Grid? activeVideoGrid;
     private DispatcherTimer? timer;
-    private long totalDurationMs;
+    private double totalDurationSec;
     private int numWindows = 4;
     private string selectedVideoFile = string.Empty;
     private bool isVideoLoaded;
     private int expandedIndex = -1;
-    private int prevNumWindows = 1;
     private int currentWindowIndex;
     private bool isMuted = true;
     private bool isScrubbing;
     private bool isUpdatingSliderFromPlayback;
     private int currentVolume = 100;
-    private DateTime[] lastLeftClickTimes = new DateTime[MaxWindows];
+    private readonly DateTime[] lastLeftClickTimes = new DateTime[MaxWindows];
     private int loadVersion;
-    private long[] startPositions = new long[MaxWindows];
+    private double[] startPositionsSec = new double[MaxWindows];
 
     // Download
     private CancellationTokenSource? downloadCts;
     private static readonly string CacheDir = Path.Combine(Path.GetTempPath(), "MultiPlayerAll");
 
-    // API configuration
+    // API
     private readonly HttpClient httpClient = new() { Timeout = TimeSpan.FromSeconds(30) };
     private readonly string apiBaseUrl = "http://rmansava.mynetgear.com:9191/api/VideoArchive";
 
@@ -68,83 +56,43 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        silentAudioPlayCb = SilentAudioPlay;
-        silentAudioPauseCb = SilentAudioPause;
-        silentAudioResumeCb = SilentAudioResume;
-        silentAudioFlushCb = SilentAudioFlush;
-        silentAudioDrainCb = SilentAudioDrain;
-
-        Core.Initialize();
-        libVLC = new LibVLC();
-
         timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
         timer.Tick += Timer_Tick;
         timer.Start();
 
         MuteButton.Content = "UnMute";
         UpdateVolumeLabel();
-        NumWindowsComboBox.SelectedIndex = 2; // default to 4 windows
+        NumWindowsComboBox.SelectedIndex = 2; // default 4
 
         VideoDataGrid.DoubleTapped += VideoDataGrid_DoubleTapped;
         PositionSlider.AddHandler(InputElement.PointerPressedEvent, PositionSlider_PointerPressed, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, true);
         PositionSlider.AddHandler(InputElement.PointerReleasedEvent, PositionSlider_PointerReleased, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, true);
         PositionSlider.AddHandler(InputElement.PointerCaptureLostEvent, PositionSlider_PointerCaptureLost, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, true);
 
-        // Ensure cache directory exists
         Directory.CreateDirectory(CacheDir);
-
         TestApiConnection();
     }
 
     private async void TestApiConnection()
     {
-        try
-        {
-            var response = await httpClient.GetAsync($"{apiBaseUrl}/search?videoName=test");
-        }
-        catch
-        {
-            // API not available - user can still open local files
-        }
-    }
-
-    private static void SilentAudioPlay(IntPtr data, IntPtr samples, uint count, long pts)
-    {
-    }
-
-    private static void SilentAudioPause(IntPtr data, long pts)
-    {
-    }
-
-    private static void SilentAudioResume(IntPtr data, long pts)
-    {
-    }
-
-    private static void SilentAudioFlush(IntPtr data, long pts)
-    {
-    }
-
-    private static void SilentAudioDrain(IntPtr data)
-    {
+        try { await httpClient.GetAsync($"{apiBaseUrl}/search?videoName=test"); }
+        catch { }
     }
 
     // ── Download & Play ─────────────────────────────────────────────────
 
     private async Task DownloadAndPlay(string remotePath)
     {
-        // Check if already cached
         var fileName = Path.GetFileName(remotePath);
         var localPath = Path.Combine(CacheDir, SanitizeFileName(fileName));
 
         if (File.Exists(localPath))
         {
-            // Already downloaded — play directly
             selectedVideoFile = localPath;
             await LoadVideoAsync(localPath);
             return;
         }
 
-        // Show download overlay
         downloadCts = new CancellationTokenSource();
         DownloadOverlay.IsVisible = true;
         DownloadStatusText.Text = $"Downloading: {fileName}";
@@ -153,7 +101,6 @@ public partial class MainWindow : Window
 
         try
         {
-            // Get file size first
             long totalBytes = 0;
             try
             {
@@ -161,14 +108,9 @@ public partial class MainWindow : Window
                 var sizeInfo = await httpClient.GetFromJsonAsync<FileSizeInfo>(sizeUrl, downloadCts.Token);
                 if (sizeInfo != null) totalBytes = sizeInfo.Size;
             }
-            catch
-            {
-                // Size unknown — we'll still download, just no percentage
-            }
+            catch { }
 
-            // Download the file
             var streamUrl = $"{apiBaseUrl}/stream?path={Uri.EscapeDataString(remotePath)}";
-
             using var downloadClient = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
             using var response = await downloadClient.GetAsync(streamUrl, HttpCompletionOption.ResponseHeadersRead, downloadCts.Token);
             response.EnsureSuccessStatusCode();
@@ -185,13 +127,10 @@ public partial class MainWindow : Window
             {
                 var buffer = new byte[81920];
                 int bytesRead;
-
                 while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length, downloadCts.Token)) > 0)
                 {
                     await fileStream.WriteAsync(buffer, 0, bytesRead, downloadCts.Token);
                     downloaded += bytesRead;
-
-                    // Update progress on UI thread
                     var dl = downloaded;
                     var elapsed = sw.Elapsed;
                     Dispatcher.UIThread.Post(() =>
@@ -212,10 +151,7 @@ public partial class MainWindow : Window
                 }
             }
 
-            // Rename temp to final
             File.Move(tempPath, localPath, overwrite: true);
-
-            // Hide overlay and play
             DownloadOverlay.IsVisible = false;
             selectedVideoFile = localPath;
             await LoadVideoAsync(localPath);
@@ -223,8 +159,6 @@ public partial class MainWindow : Window
         catch (OperationCanceledException)
         {
             DownloadOverlay.IsVisible = false;
-            DownloadDetailText.Text = "Download cancelled.";
-            // Clean up temp file
             var tempPath = localPath + ".tmp";
             if (File.Exists(tempPath)) File.Delete(tempPath);
         }
@@ -235,10 +169,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void CancelDownloadButton_Click(object? sender, RoutedEventArgs e)
-    {
-        downloadCts?.Cancel();
-    }
+    private void CancelDownloadButton_Click(object? sender, RoutedEventArgs e) => downloadCts?.Cancel();
 
     private static string SanitizeFileName(string name)
     {
@@ -251,25 +182,31 @@ public partial class MainWindow : Window
 
     private void Timer_Tick(object? sender, EventArgs e)
     {
-        if (mediaPlayers[0] == null || !mediaPlayers[0].IsPlaying) return;
+        if (!isVideoLoaded || players[0] == null) return;
 
-        var currentMs = mediaPlayers[0].Time;
-        if (!isScrubbing)
+        var pos = players[0].Position;
+        if (pos < 0) return;
+
+        var segmentOffset = pos - startPositionsSec[0];
+        if (!isScrubbing && segmentOffset >= 0)
         {
             isUpdatingSliderFromPlayback = true;
-            PositionSlider.Value = currentMs;
+            PositionSlider.Value = segmentOffset;
             isUpdatingSliderFromPlayback = false;
         }
 
         for (int i = 0; i < numWindows; i++)
         {
-            if (mediaPlayers[i] != null && timeLabels[i] != null)
+            if (players[i] != null && timeLabels[i] != null)
             {
-                var ts = TimeSpan.FromMilliseconds(mediaPlayers[i].Time);
-                timeLabels[i].Text = $"{ts.Hours:00}:{ts.Minutes:00}:{ts.Seconds:00}";
+                var p = players[i]!.Position;
+                if (p >= 0)
+                {
+                    var ts = TimeSpan.FromSeconds(p);
+                    timeLabels[i].Text = $"{ts.Hours:00}:{ts.Minutes:00}:{ts.Seconds:00}";
+                }
             }
         }
-
     }
 
     // ── Open / Load Video ──────────────────────────────────────────────
@@ -302,26 +239,16 @@ public partial class MainWindow : Window
     private void OpenFileButton_Click(object? sender, RoutedEventArgs e)
     {
         var path = GetExternalOpenPath();
-        if (string.IsNullOrEmpty(path))
-            return;
-
+        if (string.IsNullOrEmpty(path)) return;
         try
         {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = path,
-                UseShellExecute = true
-            });
+            Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true });
         }
-        catch (Exception ex)
-        {
-            DownloadDetailText.Text = $"Open failed: {ex.Message}";
-        }
+        catch { }
     }
 
     private async Task LoadVideoAsync(string videoPath)
     {
-        if (libVLC == null) return;
         await loadSemaphore.WaitAsync();
         var currentLoadVersion = Interlocked.Increment(ref loadVersion);
 
@@ -330,83 +257,77 @@ public partial class MainWindow : Window
             isVideoLoaded = false;
             selectedVideoFile = videoPath;
             currentWindowIndex = 0;
-            EnsureVideoGrid();
-            EnsureVideoViews();
-            DisposeMediaPlayers();
+            expandedIndex = -1;
 
-            // ── Parse duration ──
-            var probMedia = new Media(libVLC, videoPath, FromType.FromPath);
-            await probMedia.Parse(MediaParseOptions.ParseLocal);
-            if (currentLoadVersion != loadVersion)
+            EnsureVideoGrid();
+            EnsureVideoPanels();
+            DisposePlayers();
+
+            // Probe duration with a temporary mpv instance
+            File.AppendAllText(Path.Combine(CacheDir, "crash.log"), $"{DateTime.Now} Probing duration for {videoPath}\n");
+            totalDurationSec = await ProbeDuration(videoPath);
+            File.AppendAllText(Path.Combine(CacheDir, "crash.log"), $"{DateTime.Now} Duration={totalDurationSec}\n");
+            if (currentLoadVersion != loadVersion) return;
+            if (totalDurationSec <= 0)
             {
-                probMedia.Dispose();
+                File.AppendAllText(Path.Combine(CacheDir, "crash.log"), $"{DateTime.Now} Duration is 0, aborting\n");
                 return;
             }
-            totalDurationMs = probMedia.Duration;
-            probMedia.Dispose();
 
-            if (totalDurationMs <= 0) return;
-
-            var segmentDurationMs = totalDurationMs / numWindows;
-            CalculateStartPositions(segmentDurationMs);
-            PositionSlider.Maximum = segmentDurationMs;
+            var segmentDurationSec = totalDurationSec / numWindows;
+            CalculateStartPositions(segmentDurationSec);
+            PositionSlider.Maximum = segmentDurationSec;
             PositionSlider.Value = 0;
 
             RefreshVideoLayout();
 
+            // Create players using render API (no native windows)
             for (int i = 0; i < numWindows; i++)
             {
-                var shouldHaveAudio = !isMuted && i == 0;
-                mediaPlayers[i] = CreateMediaPlayer(videoPath, i);
-                playerHasAudio[i] = shouldHaveAudio;
-                if (videoViews[i] != null)
-                    videoViews[i].MediaPlayer = mediaPlayers[i];
+                var player = new MpvPlayer();
+                player.SetOption("vo", "libmpv");
+                player.SetOption("keep-open", "yes");
+                player.SetOption("hr-seek", "yes");
+                player.SetOption("osc", "no");
+                player.SetOption("input-default-bindings", "no");
+                player.SetOption("input-vo-keyboard", "no");
+                player.Initialize();
+
+                player.Volume = (i == currentWindowIndex && !isMuted) ? currentVolume : 0;
+                player.LoadFile(videoPath);
+                players[i] = player;
+
+                // Attach player to GL view — it will create the render context
+                videoViews[i]?.AttachPlayer(player);
             }
 
-            if (numWindows > 0) SetCurrentWindow(0);
+            // Wait for players to start
+            await Task.Delay(800);
+            if (currentLoadVersion != loadVersion) return;
 
-            // ── Play, seek, resume ──
-            for (int i = 0; i < numWindows; i++)
-                mediaPlayers[i]?.Play();
-
-            await Task.Delay(500);
-            if (currentLoadVersion != loadVersion)
-                return;
-
+            // Seek to start positions and pause
             for (int i = 0; i < numWindows; i++)
             {
-                if (mediaPlayers[i] != null)
-                {
-                    mediaPlayers[i].Pause();
-                    mediaPlayers[i].Time = startPositions[i];
-                }
-                if (timeLabels[i] != null)
-                {
-                    var ts = TimeSpan.FromMilliseconds(startPositions[i]);
-                    timeLabels[i].Text = $"{ts.Hours:00}:{ts.Minutes:00}:{ts.Seconds:00}";
-                }
+                if (players[i] == null) continue;
+                players[i]!.Pause();
+                players[i]!.Seek(startPositionsSec[i]);
             }
 
-
-            await Task.Delay(200);
-            if (currentLoadVersion != loadVersion)
-                return;
-
-            for (int i = 0; i < numWindows; i++)
-                mediaPlayers[i]?.Play();
-
-            // Wait for audio pipelines to initialize before routing
             await Task.Delay(300);
+            if (currentLoadVersion != loadVersion) return;
+
+            // Resume playback
+            for (int i = 0; i < numWindows; i++)
+                players[i]?.Resume();
 
             isVideoLoaded = true;
+            SetCurrentWindow(0);
             ApplyAudioRouting();
             PlayPauseButton.Content = "Play/Pause";
         }
         catch (Exception ex)
         {
-            File.AppendAllText(
-                Path.Combine(CacheDir, "crash.log"),
-                $"{DateTime.Now} LoadVideo: {ex}\n\n");
+            File.AppendAllText(Path.Combine(CacheDir, "crash.log"), $"{DateTime.Now} LoadVideo: {ex}\n\n");
         }
         finally
         {
@@ -414,20 +335,45 @@ public partial class MainWindow : Window
         }
     }
 
-    private void CalculateStartPositions(long segmentDurationMs)
+    private async Task<double> ProbeDuration(string videoPath)
+    {
+        return await Task.Run(() =>
+        {
+            var probe = new MpvPlayer();
+            try
+            {
+                probe.SetOption("vo", "null");
+                probe.SetOption("ao", "null");
+                probe.Initialize();
+                probe.LoadFile(videoPath);
+
+                // Wait for duration to be available
+                for (int attempt = 0; attempt < 50; attempt++)
+                {
+                    Thread.Sleep(100);
+                    var dur = probe.Duration;
+                    if (dur > 0) return dur;
+                }
+                return 0;
+            }
+            finally
+            {
+                probe.Dispose();
+            }
+        });
+    }
+
+    private void CalculateStartPositions(double segmentDurationSec)
     {
         for (int i = 0; i < MaxWindows; i++)
-            startPositions[i] = 0;
-
+            startPositionsSec[i] = 0;
         for (int i = 0; i < numWindows; i++)
-            startPositions[i] = i * segmentDurationMs;
+            startPositionsSec[i] = i * segmentDurationSec;
     }
 
     private void EnsureVideoGrid()
     {
-        if (activeVideoGrid != null)
-            return;
-
+        if (activeVideoGrid != null) return;
         activeVideoGrid = new Grid
         {
             HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -437,15 +383,13 @@ public partial class MainWindow : Window
         VideoContainer.Children.Insert(0, activeVideoGrid);
     }
 
-    private void EnsureVideoViews()
+    private void EnsureVideoPanels()
     {
-        if (activeVideoGrid == null)
-            return;
+        if (activeVideoGrid == null) return;
 
         for (int i = 0; i < MaxWindows; i++)
         {
-            if (videoViews[i] != null)
-                continue;
+            if (videoPanels[i] != null) continue;
 
             var timeLabel = new TextBlock
             {
@@ -459,11 +403,23 @@ public partial class MainWindow : Window
             };
             timeLabels[i] = timeLabel;
 
+            var view = new MpvVideoView
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch
+            };
+            videoViews[i] = view;
+
             int idx = i;
-            var overlay = new Grid { Background = Brushes.Transparent };
+
+            // Overlay sits on top of GL view — timestamps + click events
+            var overlay = new Panel
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Background = Brushes.Transparent
+            };
             overlay.Children.Add(timeLabel);
-            overlay.HorizontalAlignment = HorizontalAlignment.Stretch;
-            overlay.VerticalAlignment = VerticalAlignment.Stretch;
 
             overlay.PointerPressed += (s, e) =>
             {
@@ -471,104 +427,59 @@ public partial class MainWindow : Window
                 if (props.IsLeftButtonPressed)
                 {
                     SetCurrentWindow(idx);
-
                     var now = DateTime.UtcNow;
                     if ((now - lastLeftClickTimes[idx]).TotalMilliseconds <= 450)
                     {
                         ToggleExpandedWindow(idx);
                         e.Handled = true;
                     }
-
                     lastLeftClickTimes[idx] = now;
                 }
                 else if (props.IsRightButtonPressed)
                 {
-                    if (mediaPlayers[0]?.IsPlaying ?? false) PauseAll(); else PlayAll();
+                    if (players[0] != null && !players[0].IsPaused) PauseAll(); else PlayAll();
                     e.Handled = true;
                 }
             };
 
-            var view = new VideoView
+            var panel = new Panel
             {
-                Content = overlay,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch,
                 ClipToBounds = true
             };
+            panel.Children.Add(view);    // GL view at bottom
+            panel.Children.Add(overlay); // overlay on top
 
-            videoViews[i] = view;
-            activeVideoGrid.Children.Add(view);
+            videoPanels[i] = panel;
+            activeVideoGrid.Children.Add(panel);
         }
     }
 
-    private void DisposeMediaPlayers()
+    private void DisposePlayers()
     {
         for (int i = 0; i < MaxWindows; i++)
         {
-            if (videoViews[i] != null)
-                videoViews[i].MediaPlayer = null;
-
-            playerHasAudio[i] = false;
-
-            if (mediaPlayers[i] != null)
+            if (players[i] != null)
             {
-                mediaPlayers[i].EndReached -= MediaPlayer_EndReached;
-                mediaPlayers[i].Stop();
-                mediaPlayers[i].Dispose();
-                mediaPlayers[i] = null!;
+                players[i]!.Stop();
+                players[i]!.Dispose();
+                players[i] = null;
             }
-
-            playerLibVLCs[i]?.Dispose();
-            playerLibVLCs[i] = null;
         }
-    }
 
-    private void DisposeAudioPlayer()
-    {
-        // No-op — audio comes from video players directly
-    }
-
-    private MediaPlayer CreateMediaPlayer(string videoPath, int index)
-    {
-        playerLibVLCs[index]?.Dispose();
-        playerLibVLCs[index] = new LibVLC("--aout=directsound");
-
-        var media = new Media(playerLibVLCs[index], videoPath, FromType.FromPath);
-        var player = new MediaPlayer(media);
-        player.EndReached += MediaPlayer_EndReached;
-
-        // Volume must be applied after audio pipeline starts
-        player.Playing += (s, e) =>
-        {
-            Dispatcher.UIThread.Post(() => ApplyAudioForPlayer(index));
-        };
-
-        media.Dispose();
-        return player;
-    }
-
-    private void ApplyAudioForPlayer(int index)
-    {
-        if (mediaPlayers[index] == null) return;
-        var targetVol = (index == currentWindowIndex && !isMuted) ? currentVolume : 0;
-        mediaPlayers[index].Volume = targetVol;
-        AudioLog($"ApplyAudioForPlayer({index}): targetVol={targetVol} actualVol={mediaPlayers[index].Volume}");
     }
 
     // ── Window Selection ───────────────────────────────────────────────
 
     private void SetCurrentWindow(int index)
     {
-        if (index < 0 || index >= numWindows)
-            return;
-
+        if (index < 0 || index >= numWindows) return;
         currentWindowIndex = index;
 
         for (int i = 0; i < numWindows; i++)
-        {
             if (timeLabels[i] != null)
                 timeLabels[i].Foreground = Brushes.GreenYellow;
-        }
 
         if (timeLabels[index] != null)
             timeLabels[index].Foreground = Brushes.Aquamarine;
@@ -580,80 +491,25 @@ public partial class MainWindow : Window
     {
         for (int i = 0; i < numWindows; i++)
         {
-            if (mediaPlayers[i] == null)
-                continue;
+            if (players[i] == null) continue;
 
             if (i == currentWindowIndex && !isMuted)
-            {
-                mediaPlayers[i].Volume = currentVolume;
-                AudioLog($"Player {i}: SET Volume={currentVolume} ACTIVE. IsPlaying={mediaPlayers[i].IsPlaying} AudioTrack={mediaPlayers[i].AudioTrack}/{mediaPlayers[i].AudioTrackCount} ActualVol={mediaPlayers[i].Volume}");
-            }
+                players[i]!.Volume = currentVolume;
             else
-            {
-                mediaPlayers[i].Volume = 0;
-                AudioLog($"Player {i}: SET Volume=0. IsPlaying={mediaPlayers[i]?.IsPlaying} ActualVol={mediaPlayers[i]?.Volume}");
-            }
+                players[i]!.Volume = 0;
         }
-    }
-
-    private void ReplacePlayerForAudioMode(int index, bool shouldHaveAudio)
-    {
-        if (mediaPlayers[index] == null || string.IsNullOrEmpty(selectedVideoFile))
-            return;
-
-        var previousPlayer = mediaPlayers[index];
-        var targetTime = previousPlayer.Time;
-        var shouldPlay = previousPlayer.IsPlaying;
-        var rate = previousPlayer.Rate;
-
-        var replacement = CreateMediaPlayer(selectedVideoFile, index);
-        playerHasAudio[index] = shouldHaveAudio;
-        mediaPlayers[index] = replacement;
-
-        if (videoViews[index] != null)
-            videoViews[index].MediaPlayer = replacement;
-
-        previousPlayer.EndReached -= MediaPlayer_EndReached;
-        previousPlayer.Stop();
-        previousPlayer.Dispose();
-
-        replacement.Play();
-        replacement.SetRate(rate);
-
-        _ = RestorePlayerStateAfterSwap(index, replacement, targetTime, shouldPlay, rate);
-    }
-
-    private async Task RestorePlayerStateAfterSwap(int index, MediaPlayer replacement, long targetTime, bool shouldPlay, float rate)
-    {
-        await Task.Delay(250);
-        if (mediaPlayers[index] != replacement)
-            return;
-
-        if (targetTime >= 0)
-            replacement.Time = targetTime;
-
-        replacement.SetRate(rate);
-        replacement.Volume = currentVolume;
-
-        if (shouldPlay)
-            replacement.Play();
-        else
-            replacement.Pause();
     }
 
     private void ToggleExpandedWindow(int index)
     {
-        if (index < 0 || index >= numWindows)
-            return;
-
+        if (index < 0 || index >= numWindows) return;
         expandedIndex = expandedIndex == index ? -1 : index;
         RefreshVideoLayout();
     }
 
     private void RefreshVideoLayout()
     {
-        if (activeVideoGrid == null)
-            return;
+        if (activeVideoGrid == null) return;
 
         activeVideoGrid.RowDefinitions.Clear();
         activeVideoGrid.ColumnDefinitions.Clear();
@@ -672,48 +528,41 @@ public partial class MainWindow : Window
 
         for (int i = 0; i < MaxWindows; i++)
         {
-            if (videoViews[i] == null)
-                continue;
+            if (videoPanels[i] == null) continue;
 
             bool isVisible = i < numWindows;
             bool isExpandedCell = isExpanded && isVisible;
-            videoViews[i].IsVisible = isVisible && (!isExpandedCell || i == expandedIndex);
-            Grid.SetRowSpan(videoViews[i], 1);
-            Grid.SetColumnSpan(videoViews[i], 1);
+            videoPanels[i].IsVisible = isVisible && (!isExpandedCell || i == expandedIndex);
+            Grid.SetRowSpan(videoPanels[i], 1);
+            Grid.SetColumnSpan(videoPanels[i], 1);
 
-            if (!videoViews[i].IsVisible)
+            if (!videoPanels[i].IsVisible)
             {
-                Grid.SetRow(videoViews[i], 0);
-                Grid.SetColumn(videoViews[i], 0);
+                Grid.SetRow(videoPanels[i], 0);
+                Grid.SetColumn(videoPanels[i], 0);
                 continue;
             }
 
             if (isExpanded && i == expandedIndex)
             {
-                Grid.SetRow(videoViews[i], 0);
-                Grid.SetColumn(videoViews[i], 0);
-                Grid.SetRowSpan(videoViews[i], rowCount);
-                Grid.SetColumnSpan(videoViews[i], columnCount);
+                Grid.SetRow(videoPanels[i], 0);
+                Grid.SetColumn(videoPanels[i], 0);
+                Grid.SetRowSpan(videoPanels[i], rowCount);
+                Grid.SetColumnSpan(videoPanels[i], columnCount);
             }
             else
             {
-                Grid.SetRow(videoViews[i], i / columns);
-                Grid.SetColumn(videoViews[i], i % columns);
+                Grid.SetRow(videoPanels[i], i / columns);
+                Grid.SetColumn(videoPanels[i], i % columns);
             }
         }
-
-        activeVideoGrid.InvalidateMeasure();
-        activeVideoGrid.InvalidateArrange();
     }
-
-
 
     // ── Playback Controls ──────────────────────────────────────────────
 
     private async void PlayPauseButton_Click(object? sender, RoutedEventArgs e)
     {
-        // If no video loaded, try to load from grid selection
-        if (!isVideoLoaded || mediaPlayers[0] == null)
+        if (!isVideoLoaded || players[0] == null)
         {
             if (VideoDataGrid.SelectedItem is VideoInfo selected && !string.IsNullOrEmpty(selected.FullPath))
             {
@@ -723,7 +572,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (mediaPlayers[0]?.IsPlaying ?? false)
+        if (!players[0]!.IsPaused)
             PauseAll();
         else
             PlayAll();
@@ -732,47 +581,33 @@ public partial class MainWindow : Window
     private void PlayAll()
     {
         for (int i = 0; i < numWindows; i++)
-            mediaPlayers[i]?.Play();
+            players[i]?.Resume();
         ApplyAudioRouting();
     }
 
     private void PauseAll()
     {
         for (int i = 0; i < numWindows; i++)
-            mediaPlayers[i]?.Pause();
-
+            players[i]?.Pause();
     }
 
     private void StopButton_Click(object? sender, RoutedEventArgs e)
     {
         for (int i = 0; i < numWindows; i++)
-            mediaPlayers[i]?.Stop();
-
+            players[i]?.Stop();
     }
 
     private void SyncButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (currentWindowIndex < 0 || currentWindowIndex >= numWindows)
-            return;
+        if (currentWindowIndex < 0 || currentWindowIndex >= numWindows) return;
+        if (players[currentWindowIndex] == null) return;
 
-        if (mediaPlayers[currentWindowIndex] == null)
-            return;
-
-        var syncTime = mediaPlayers[currentWindowIndex].Time;
+        var syncPos = players[currentWindowIndex]!.Position;
         for (int i = 0; i < numWindows; i++)
         {
-            if (mediaPlayers[i] == null || i == currentWindowIndex)
-                continue;
-
-            mediaPlayers[i].Time = syncTime;
-
-            if (timeLabels[i] != null)
-            {
-                var ts = TimeSpan.FromMilliseconds(syncTime);
-                timeLabels[i].Text = $"{ts.Hours:00}:{ts.Minutes:00}:{ts.Seconds:00}";
-            }
+            if (players[i] == null || i == currentWindowIndex) continue;
+            players[i]!.Seek(syncPos);
         }
-
     }
 
     // ── Speed ──────────────────────────────────────────────────────────
@@ -780,37 +615,29 @@ public partial class MainWindow : Window
     private void SpeedDownButton_Click(object? sender, RoutedEventArgs e)
     {
         for (int i = 0; i < numWindows; i++)
-            if (mediaPlayers[i] != null)
-                mediaPlayers[i].SetRate(Math.Max(0.1f, mediaPlayers[i].Rate - 0.5f));
+            if (players[i] != null)
+                players[i]!.Speed = Math.Max(0.1, players[i]!.Speed - 0.5);
         UpdateSpeedLabel();
     }
 
     private void SpeedUpButton_Click(object? sender, RoutedEventArgs e)
     {
         for (int i = 0; i < numWindows; i++)
-            if (mediaPlayers[i] != null)
-                mediaPlayers[i].SetRate(mediaPlayers[i].Rate + 0.5f);
+            if (players[i] != null)
+                players[i]!.Speed = players[i]!.Speed + 0.5;
         UpdateSpeedLabel();
     }
 
     private void UpdateSpeedLabel()
     {
-        if (mediaPlayers[0] != null)
-            SpeedLabel.Text = $"{mediaPlayers[0].Rate:F1}x";
+        if (players[0] != null)
+            SpeedLabel.Text = $"{players[0]!.Speed:F1}x";
     }
 
     // ── Mute ───────────────────────────────────────────────────────────
 
-    private static readonly string AudioLogPath = Path.Combine(Path.GetTempPath(), "MultiPlayerAll", "audio.log");
-
-    private static void AudioLog(string msg)
-    {
-        File.AppendAllText(AudioLogPath, $"{DateTime.Now:HH:mm:ss.fff} {msg}\n");
-    }
-
     private void MuteButton_Click(object? sender, RoutedEventArgs e)
     {
-        AudioLog($"MuteButton clicked. isMuted was {isMuted}");
         if (isMuted)
         {
             isMuted = false;
@@ -821,19 +648,11 @@ public partial class MainWindow : Window
             isMuted = true;
             MuteButton.Content = "UnMute";
         }
-        AudioLog($"isMuted now {isMuted}, calling ApplyAudioRouting");
         ApplyAudioRouting();
     }
 
-    private void VolumeDownButton_Click(object? sender, RoutedEventArgs e)
-    {
-        SetVolume(currentVolume - 10);
-    }
-
-    private void VolumeUpButton_Click(object? sender, RoutedEventArgs e)
-    {
-        SetVolume(currentVolume + 10);
-    }
+    private void VolumeDownButton_Click(object? sender, RoutedEventArgs e) => SetVolume(currentVolume - 10);
+    private void VolumeUpButton_Click(object? sender, RoutedEventArgs e) => SetVolume(currentVolume + 10);
 
     private void SetVolume(int volume)
     {
@@ -855,15 +674,14 @@ public partial class MainWindow : Window
         {
             for (int i = 0; i < numWindows; i++)
             {
-                if (mediaPlayers[i] != null)
+                if (players[i] != null)
                 {
-                    var newTimeMs = mediaPlayers[i].Time + (seconds * 1000L);
-                    if (newTimeMs < 0) newTimeMs = 0;
-                    if (newTimeMs > totalDurationMs) newTimeMs = totalDurationMs;
-                    mediaPlayers[i].Time = newTimeMs;
+                    var newPos = players[i]!.Position + seconds;
+                    if (newPos < 0) newPos = 0;
+                    if (newPos > totalDurationSec) newPos = totalDurationSec;
+                    players[i]!.Seek(newPos);
                 }
             }
-
         }
     }
 
@@ -871,82 +689,34 @@ public partial class MainWindow : Window
 
     private void PositionSlider_ValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
     {
-        if (!isVideoLoaded || mediaPlayers[0] == null) return;
+        if (!isVideoLoaded || players[0] == null) return;
         if (isUpdatingSliderFromPlayback) return;
-
         ApplySliderSeek();
     }
 
-    private void PositionSlider_PointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (!isVideoLoaded)
-            return;
-
-        isScrubbing = true;
-    }
-
-    private void PositionSlider_PointerReleased(object? sender, PointerReleasedEventArgs e)
-    {
-        ApplySliderSeek();
-        isScrubbing = false;
-    }
-
-    private void PositionSlider_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
-    {
-        ApplySliderSeek();
-        isScrubbing = false;
-    }
+    private void PositionSlider_PointerPressed(object? sender, PointerPressedEventArgs e) { if (isVideoLoaded) isScrubbing = true; }
+    private void PositionSlider_PointerReleased(object? sender, PointerReleasedEventArgs e) { ApplySliderSeek(); isScrubbing = false; }
+    private void PositionSlider_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e) { ApplySliderSeek(); isScrubbing = false; }
 
     private void ApplySliderSeek()
     {
-        if (!isVideoLoaded || mediaPlayers[0] == null)
-            return;
+        if (!isVideoLoaded || players[0] == null) return;
 
-        var sliderMs = Math.Clamp((long)PositionSlider.Value, 0, (long)PositionSlider.Maximum);
-        var segmentDurationMs = totalDurationMs / numWindows;
-
-        for (int i = 0; i < numWindows; i++)
-        {
-            if (mediaPlayers[i] == null)
-                continue;
-
-            var seekMs = (i * segmentDurationMs) + sliderMs;
-            mediaPlayers[i].Time = seekMs;
-
-            if (timeLabels[i] != null)
-            {
-                var ts = TimeSpan.FromMilliseconds(seekMs);
-                timeLabels[i].Text = $"{ts.Hours:00}:{ts.Minutes:00}:{ts.Seconds:00}";
-            }
-        }
-
-    }
-
-    private void MediaPlayer_EndReached(object? sender, EventArgs e)
-    {
-        Dispatcher.UIThread.Post(ResetPlaybackToStart);
-    }
-
-    private void ResetPlaybackToStart()
-    {
-        PauseAll();
-        PositionSlider.Value = 0;
+        var sliderSec = Math.Clamp(PositionSlider.Value, 0, PositionSlider.Maximum);
+        var segmentDurationSec = totalDurationSec / numWindows;
 
         for (int i = 0; i < numWindows; i++)
         {
-            if (mediaPlayers[i] != null)
-            {
-                mediaPlayers[i].Stop();
-                mediaPlayers[i].Time = startPositions[i];
-            }
+            if (players[i] == null) continue;
+            var seekPos = startPositionsSec[i] + sliderSec;
+            players[i]!.Seek(seekPos);
 
             if (timeLabels[i] != null)
             {
-                var ts = TimeSpan.FromMilliseconds(startPositions[i]);
+                var ts = TimeSpan.FromSeconds(seekPos);
                 timeLabels[i].Text = $"{ts.Hours:00}:{ts.Minutes:00}:{ts.Seconds:00}";
             }
         }
-
     }
 
     // ── Num Windows ────────────────────────────────────────────────────
@@ -956,7 +726,6 @@ public partial class MainWindow : Window
         if (NumWindowsComboBox.SelectedItem is ComboBoxItem item &&
             int.TryParse(item.Content?.ToString(), out int n))
         {
-            prevNumWindows = numWindows;
             numWindows = n;
             expandedIndex = -1;
             currentWindowIndex = 0;
@@ -972,11 +741,7 @@ public partial class MainWindow : Window
     private async void SearchButton_Click(object? sender, RoutedEventArgs e)
     {
         string query = SearchTextBox?.Text?.Trim() ?? "";
-        if (string.IsNullOrEmpty(query))
-        {
-            VideoDataGrid.ItemsSource = null;
-            return;
-        }
+        if (string.IsNullOrEmpty(query)) { VideoDataGrid.ItemsSource = null; return; }
 
         try
         {
@@ -1008,9 +773,7 @@ public partial class MainWindow : Window
     private async void VideoDataGrid_DoubleTapped(object? sender, TappedEventArgs e)
     {
         if (VideoDataGrid.SelectedItem is VideoInfo selected && !string.IsNullOrEmpty(selected.FullPath))
-        {
             await DownloadAndPlay(selected.FullPath);
-        }
     }
 
     // ── Title Bar / Window Chrome ──────────────────────────────────────
@@ -1021,10 +784,7 @@ public partial class MainWindow : Window
             BeginMoveDrag(e);
     }
 
-    private void MinimizeButton_Click(object? sender, RoutedEventArgs e)
-    {
-        WindowState = WindowState.Minimized;
-    }
+    private void MinimizeButton_Click(object? sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
 
     private void MaximizeRestoreButton_Click(object? sender, RoutedEventArgs e)
     {
@@ -1040,32 +800,18 @@ public partial class MainWindow : Window
         }
     }
 
-    private void CloseButton_Click(object? sender, RoutedEventArgs e)
-    {
-        Close();
-    }
+    private void CloseButton_Click(object? sender, RoutedEventArgs e) => Close();
 
     // ── Cleanup ────────────────────────────────────────────────────────
 
     protected override void OnClosing(WindowClosingEventArgs e)
     {
         timer?.Stop();
+        for (int i = 0; i < MaxWindows; i++)
+            videoViews[i]?.DetachPlayer();
         downloadCts?.Cancel();
         Interlocked.Increment(ref loadVersion);
-
-        for (int i = 0; i < MaxWindows; i++)
-        {
-            if (videoViews[i] != null)
-            {
-                videoViews[i].MediaPlayer = null;
-                videoViews[i].Content = null;
-            }
-        }
-
-        DisposeMediaPlayers();
-        DisposeAudioPlayer();
-
-        libVLC?.Dispose();
+        DisposePlayers();
         httpClient.Dispose();
         base.OnClosing(e);
     }
@@ -1075,21 +821,16 @@ public partial class MainWindow : Window
         if (VideoDataGrid.SelectedItem is VideoInfo selected && !string.IsNullOrWhiteSpace(selected.FullPath))
         {
             var cachedPath = Path.Combine(CacheDir, SanitizeFileName(Path.GetFileName(selected.FullPath)));
-            if (File.Exists(cachedPath))
-                return cachedPath;
-
+            if (File.Exists(cachedPath)) return cachedPath;
             if (File.Exists(selected.FullPath) || Directory.Exists(Path.GetDirectoryName(selected.FullPath) ?? string.Empty))
                 return selected.FullPath;
         }
-
         if (!string.IsNullOrWhiteSpace(selectedVideoFile) && File.Exists(selectedVideoFile))
             return selectedVideoFile;
-
         return string.Empty;
     }
 }
 
-// Model for API response
 public class VideoInfo
 {
     public string FileName { get; set; } = "";
