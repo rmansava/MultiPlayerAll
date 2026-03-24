@@ -83,8 +83,26 @@ public partial class MainWindow : Window
 
     private async Task DownloadAndPlay(string remotePath)
     {
+        // If file is on a local drive (not UNC/network), play directly
+        if (!remotePath.StartsWith("\\\\") && File.Exists(remotePath))
+        {
+            selectedVideoFile = remotePath;
+            await LoadVideoAsync(remotePath);
+            return;
+        }
+
+        // Check local cache
         var fileName = Path.GetFileName(remotePath);
         var localPath = Path.Combine(CacheDir, SanitizeFileName(fileName));
+
+        // Try streaming via HTTP (mpv handles HTTP natively with seeking)
+        if (!File.Exists(localPath))
+        {
+            var streamUrl = $"{apiBaseUrl}/stream?path={Uri.EscapeDataString(remotePath)}";
+            selectedVideoFile = streamUrl;
+            await LoadVideoAsync(streamUrl);
+            return;
+        }
 
         if (File.Exists(localPath))
         {
@@ -312,24 +330,43 @@ public partial class MainWindow : Window
             for (int i = 0; i < numWindows; i++)
                 players[i]?.LoadFile(videoPath);
 
-            // Wait for players to start
-            await Task.Delay(800);
+            // Wait for players to start decoding
+            await Task.Delay(1000);
             if (currentLoadVersion != loadVersion) return;
 
-            // Seek to start positions and pause
+            // Seek each player to its segment start position with retry
+            for (int attempt = 0; attempt < 5; attempt++)
+            {
+                bool allGood = true;
+                for (int i = 0; i < numWindows; i++)
+                {
+                    if (players[i] == null) continue;
+                    var target = startPositionsSec[i];
+                    var current = players[i]!.Position;
+
+                    // Only seek if not already close to target
+                    if (Math.Abs(current - target) > 2.0)
+                    {
+                        players[i]!.Command("seek", target.ToString("F1"), "absolute", "exact");
+                        allGood = false;
+                    }
+                }
+
+                if (allGood) break;
+                await Task.Delay(500);
+                if (currentLoadVersion != loadVersion) return;
+            }
+
+            // Log final positions
             for (int i = 0; i < numWindows; i++)
             {
                 if (players[i] == null) continue;
-                players[i]!.Pause();
-                players[i]!.Seek(startPositionsSec[i]);
+                File.AppendAllText(Path.Combine(CacheDir, "crash.log"),
+                    $"{DateTime.Now} Player {i} final pos={players[i]!.Position:F1} target={startPositionsSec[i]:F1}\n");
             }
 
-            await Task.Delay(300);
+            await Task.Delay(500);
             if (currentLoadVersion != loadVersion) return;
-
-            // Resume playback
-            for (int i = 0; i < numWindows; i++)
-                players[i]?.Resume();
 
             isVideoLoaded = true;
             SetCurrentWindow(0);

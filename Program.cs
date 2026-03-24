@@ -24,14 +24,25 @@ class Program
     }
 
     public static AppBuilder BuildAvaloniaApp()
-        => AppBuilder.Configure<App>()
+    {
+        var builder = AppBuilder.Configure<App>()
             .UsePlatformDetect()
-            .With(new Win32PlatformOptions
+            .LogToTrace();
+
+        // Prefer native OpenGL (WGL) for mpv compatibility, fall back to default
+        if (OperatingSystem.IsWindows())
+        {
+            builder = builder.With(new Win32PlatformOptions
             {
                 RenderingMode = new[]
                 {
-                    Win32RenderingMode.Wgl // Force native OpenGL instead of ANGLE
+                    Win32RenderingMode.Wgl,
+                    Win32RenderingMode.AngleEgl,
+                    Win32RenderingMode.Software
                 }
-            })
-            .LogToTrace();
+            });
+        }
+
+        return builder;
+    }
 }
