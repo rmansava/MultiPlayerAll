@@ -95,8 +95,9 @@ public partial class MainWindow : Window
         var fileName = Path.GetFileName(remotePath);
         var localPath = Path.Combine(CacheDir, SanitizeFileName(fileName));
 
-        // Try streaming via HTTP (mpv handles HTTP natively with seeking)
-        if (!File.Exists(localPath))
+        // Stream mode: play directly from HTTP URL (instant start)
+        bool useStream = StreamRadio?.IsChecked == true;
+        if (useStream && !File.Exists(localPath))
         {
             var streamUrl = $"{apiBaseUrl}/stream?path={Uri.EscapeDataString(remotePath)}";
             selectedVideoFile = streamUrl;
