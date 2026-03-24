@@ -18,6 +18,7 @@ public class MpvVideoView : OpenGlControlBase
     private MpvInterop.MpvOpenglGetProcAddressFn? _getProcAddressDelegate;
     private MpvInterop.MpvRenderUpdateFn? _updateCallbackDelegate;
     private Func<string, IntPtr>? _glGetProcAddress;
+    private int _renderCount;
 
     // The mpv player handle — set before GL init, or call AttachPlayer after
     private MpvPlayer? _player;
@@ -47,7 +48,12 @@ public class MpvVideoView : OpenGlControlBase
     protected override void OnOpenGlInit(GlInterface gl)
     {
         _glGetProcAddress = gl.GetProcAddress;
-        Log("OnOpenGlInit");
+
+        // Log GL info to understand what backend Avalonia is using
+        var version = gl.GetString(7938); // GL_VERSION
+        var renderer = gl.GetString(7937); // GL_RENDERER
+        var vendor = gl.GetString(7936); // GL_VENDOR
+        Log($"OnOpenGlInit: GL version={version} renderer={renderer} vendor={vendor}");
     }
 
     protected override unsafe void OnOpenGlRender(GlInterface gl, int fb)
@@ -63,6 +69,7 @@ public class MpvVideoView : OpenGlControlBase
                 return;
         }
 
+        _renderCount++;
         var scaling = VisualRoot?.RenderScaling ?? 1.0;
         int w = Math.Max(1, (int)(Bounds.Width * scaling));
         int h = Math.Max(1, (int)(Bounds.Height * scaling));
@@ -88,7 +95,15 @@ public class MpvVideoView : OpenGlControlBase
             Data = IntPtr.Zero
         };
 
-        MpvInterop.mpv_render_context_render(_renderContext, renderParams);
+        int renderErr = MpvInterop.mpv_render_context_render(_renderContext, renderParams);
+        MpvInterop.mpv_render_context_report_swap(_renderContext);
+        if (_renderCount <= 5 || _renderCount % 200 == 0)
+        {
+            ulong flags = MpvInterop.mpv_render_context_update(_renderContext);
+            var pos = _player?.Position ?? -1;
+            var paused = _player?.IsPaused ?? true;
+            Log($"render #{_renderCount} err={renderErr} fbo={fb} w={w} h={h} flags={flags} pos={pos:F1} paused={paused}");
+        }
     }
 
     protected override void OnOpenGlDeinit(GlInterface gl)

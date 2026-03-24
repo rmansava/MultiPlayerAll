@@ -1,0 +1,28 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="MultiPlayerAll.FrameIt"
+        Title="Frame Analysis" Width="800" Height="600"
+        WindowStartupLocation="CenterScreen"
+        Background="#222222">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <!-- Navigation Bar -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Center"
+                    Margin="10" Spacing="15">
+            <Button x:Name="PrevButton" Content="&lt; Previous" Width="100" Height="30"
+                    Background="#333333" Foreground="White" Click="PrevButton_Click"/>
+            <TextBlock x:Name="TimestampLabel" Text="00:00:00" Foreground="White"
+                       FontSize="18" VerticalAlignment="Center" FontWeight="Bold"/>
+            <Button x:Name="NextButton" Content="Next &gt;" Width="100" Height="30"
+                    Background="#333333" Foreground="White" Click="NextButton_Click"/>
+        </StackPanel>
+
+        <!-- Frame Grid -->
+        <Grid x:Name="FrameGrid" Grid.Row="1" Margin="5" Background="Black"/>
+
+        <!-- Status -->
+        <TextBlock x:Name="StatusText" Grid.Row="2" Foreground="Gray" FontSize="12"
+                   Margin="10,5" HorizontalAlignment="Center"/>
+    </Grid>
+</Window>

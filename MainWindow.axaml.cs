@@ -281,7 +281,7 @@ public partial class MainWindow : Window
 
             RefreshVideoLayout();
 
-            // Create players using render API (no native windows)
+            // Create players and attach to GL views (creates render context)
             for (int i = 0; i < numWindows; i++)
             {
                 var player = new MpvPlayer();
@@ -294,12 +294,23 @@ public partial class MainWindow : Window
                 player.Initialize();
 
                 player.Volume = (i == currentWindowIndex && !isMuted) ? currentVolume : 0;
-                player.LoadFile(videoPath);
                 players[i] = player;
 
-                // Attach player to GL view — it will create the render context
+                // Attach to GL view — render context created on next OnOpenGlRender
                 videoViews[i]?.AttachPlayer(player);
             }
+
+            // Wait for render contexts to be created (needs GL render cycle)
+            await Task.Delay(200);
+            // Force a render cycle
+            for (int i = 0; i < numWindows; i++)
+                videoViews[i]?.RequestNextFrameRendering();
+            await Task.Delay(300);
+            if (currentLoadVersion != loadVersion) return;
+
+            // NOW load files — render contexts should exist
+            for (int i = 0; i < numWindows; i++)
+                players[i]?.LoadFile(videoPath);
 
             // Wait for players to start
             await Task.Delay(800);
@@ -608,6 +619,17 @@ public partial class MainWindow : Window
             if (players[i] == null || i == currentWindowIndex) continue;
             players[i]!.Seek(syncPos);
         }
+    }
+
+    // ── Frame It ─────────────────────────────────────────────────────
+
+    private void FrameItButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (!isVideoLoaded || string.IsNullOrEmpty(selectedVideoFile)) return;
+
+        var currentPos = players[currentWindowIndex]?.Position ?? 0;
+        var frameWindow = new FrameIt(selectedVideoFile, totalDurationSec, currentPos);
+        frameWindow.Show();
     }
 
     // ── Speed ──────────────────────────────────────────────────────────

@@ -69,6 +69,7 @@
                            Foreground="White" TextAlignment="Center"/>
                 <Button Content="&gt;&gt;" Width="30" Click="SpeedUpButton_Click"/>
                 <Button x:Name="SyncButton" Content="Sync" Width="60" Click="SyncButton_Click"/>
+                <Button x:Name="FrameItButton" Content="Frame It" Width="70" Click="FrameItButton_Click"/>
                 <Button x:Name="MuteButton" Content="Mute" Width="60" Click="MuteButton_Click"/>
                 <Button x:Name="VolumeDownButton" Content="Vol-" Width="50" Click="VolumeDownButton_Click"/>
                 <TextBlock x:Name="VolumeLabel" Text="100" Width="35" VerticalAlignment="Center"

@@ -7,6 +7,30 @@ public static class MpvInterop
 {
     private const string LibMpv = "libmpv-2";
 
+    static MpvInterop()
+    {
+        NativeLibrary.SetDllImportResolver(typeof(MpvInterop).Assembly, (name, assembly, path) =>
+        {
+            if (name != LibMpv) return IntPtr.Zero;
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                return NativeLibrary.Load("libmpv-2.dll");
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            {
+                // Try common Homebrew paths
+                foreach (var p in new[] { "/opt/homebrew/lib/libmpv.dylib", "/usr/local/lib/libmpv.dylib" })
+                    if (File.Exists(p)) return NativeLibrary.Load(p);
+                return NativeLibrary.Load("libmpv.dylib");
+            }
+            // Linux
+            foreach (var p in new[] { "libmpv.so.2", "libmpv.so" })
+            {
+                if (NativeLibrary.TryLoad(p, out var handle)) return handle;
+            }
+            return NativeLibrary.Load("libmpv.so.2");
+        });
+    }
+
     public const int MPV_FORMAT_NONE = 0;
     public const int MPV_FORMAT_STRING = 1;
     public const int MPV_FORMAT_FLAG = 3;
