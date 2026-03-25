@@ -14,7 +14,9 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using System.Runtime.InteropServices;
 
 namespace MultiPlayerAll;
 
@@ -33,6 +35,7 @@ public partial class MainWindow : Window
     private double totalDurationSec;
     private int numWindows = 4;
     private string selectedVideoFile = string.Empty;
+    private string selectedRemotePath = string.Empty; // original UNC/remote path
     private bool isVideoLoaded;
     private int expandedIndex = -1;
     private int currentWindowIndex;
@@ -52,6 +55,45 @@ public partial class MainWindow : Window
     private readonly HttpClient httpClient = new() { Timeout = TimeSpan.FromSeconds(30) };
     private readonly string apiBaseUrl = "http://rmansava.mynetgear.com:9191/api/VideoArchive";
 
+    // User preferences
+    private static readonly string PrefsFile = Path.Combine(Path.GetTempPath(), "MultiPlayerAll", "prefs.json");
+
+    private void SavePrefs()
+    {
+        try
+        {
+            var prefs = new Dictionary<string, string>
+            {
+                ["windows"] = numWindows.ToString(),
+                ["mode"] = (StreamRadio?.IsChecked == true) ? "stream" : "download"
+            };
+            File.WriteAllText(PrefsFile, System.Text.Json.JsonSerializer.Serialize(prefs));
+        }
+        catch { }
+    }
+
+    private void LoadPrefs()
+    {
+        try
+        {
+            if (!File.Exists(PrefsFile)) return;
+            var prefs = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(PrefsFile));
+            if (prefs == null) return;
+
+            if (prefs.TryGetValue("windows", out var w) && int.TryParse(w, out var wn))
+            {
+                var idx = wn switch { 1 => 0, 2 => 1, 4 => 2, 9 => 3, _ => 2 };
+                NumWindowsComboBox.SelectedIndex = idx;
+            }
+            if (prefs.TryGetValue("mode", out var m))
+            {
+                if (m == "stream") StreamRadio.IsChecked = true;
+                else DownloadRadio.IsChecked = true;
+            }
+        }
+        catch { }
+    }
+
     public MainWindow()
     {
         InitializeComponent();
@@ -70,6 +112,33 @@ public partial class MainWindow : Window
         PositionSlider.AddHandler(InputElement.PointerCaptureLostEvent, PositionSlider_PointerCaptureLost, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, true);
 
         Directory.CreateDirectory(CacheDir);
+        LoadPrefs();
+
+        // Save prefs when mode changes
+        StreamRadio.Checked += (_, _) => SavePrefs();
+
+        // When switching from Stream to Download while playing, re-download
+        DownloadRadio.Checked += async (s, e) =>
+        {
+            SavePrefs();
+            if (isVideoLoaded && selectedVideoFile.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrEmpty(selectedRemotePath))
+            {
+                // Currently streaming — stop and download
+                var currentPos = players[currentWindowIndex]?.Position ?? 0;
+                var remotePath = selectedRemotePath;
+
+                // Stop current playback
+                for (int i = 0; i < MaxWindows; i++)
+                    videoViews[i]?.DetachPlayer();
+                DisposePlayers();
+                isVideoLoaded = false;
+
+                // Force download path
+                await DownloadAndPlay(remotePath);
+            }
+        };
+
         TestApiConnection();
     }
 
@@ -83,6 +152,8 @@ public partial class MainWindow : Window
 
     private async Task DownloadAndPlay(string remotePath)
     {
+        selectedRemotePath = remotePath;
+
         // If file is on a local drive (not UNC/network), play directly
         if (!remotePath.StartsWith("\\\\") && File.Exists(remotePath))
         {
@@ -275,6 +346,8 @@ public partial class MainWindow : Window
         try
         {
             isVideoLoaded = false;
+            _timelineGenerated = false;
+            TimelineThumbnails.Children.Clear();
             selectedVideoFile = videoPath;
             currentWindowIndex = 0;
             expandedIndex = -1;
@@ -378,6 +451,10 @@ public partial class MainWindow : Window
             SetCurrentWindow(0);
             ApplyAudioRouting();
             PlayPauseButton.Content = "Play/Pause";
+
+            // Auto-generate timeline strip (only for local files, not streams)
+            if (!_timelineGenerated && !selectedVideoFile.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                _ = GenerateTimeline();
         }
         catch (Exception ex)
         {
@@ -675,6 +752,307 @@ public partial class MainWindow : Window
         frameWindow.Show();
     }
 
+    private async void ScreenshotButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (!isVideoLoaded || players[currentWindowIndex] == null) return;
+
+        try
+        {
+            var ts = TimeSpan.FromSeconds(players[currentWindowIndex]!.Position);
+            var screenshotPath = Path.Combine(CacheDir, $"screenshot_{ts:hh\\-mm\\-ss}.png");
+
+            // mpv's screenshot-to-file renders the current frame to a file
+            players[currentWindowIndex]!.Command("screenshot-to-file", screenshotPath, "video");
+
+            await Task.Delay(300);
+
+            if (File.Exists(screenshotPath))
+            {
+                // On Windows, copy image to clipboard via powershell
+                if (OperatingSystem.IsWindows())
+                {
+                    var ps = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = "powershell",
+                        Arguments = $"-Command \"Add-Type -Assembly System.Windows.Forms; [System.Windows.Forms.Clipboard]::SetImage([System.Drawing.Image]::FromFile('{screenshotPath.Replace("'", "''")}'))\"",
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    });
+                    ps?.WaitForExit(3000);
+                    DownloadDetailText.Text = $"Screenshot copied to clipboard: {ts:hh\\:mm\\:ss}";
+                }
+                else if (OperatingSystem.IsMacOS())
+                {
+                    // Mac: copy image to clipboard via osascript
+                    var ps = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = "osascript",
+                        Arguments = $"-e \"set the clipboard to (read (POSIX file \\\"{screenshotPath}\\\") as TIFF picture)\"",
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    });
+                    ps?.WaitForExit(3000);
+                    DownloadDetailText.Text = $"Screenshot copied to clipboard: {ts:hh\\:mm\\:ss}";
+                }
+                else
+                {
+                    // Linux: copy image to clipboard via xclip
+                    var ps = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = "xclip",
+                        Arguments = $"-selection clipboard -t image/png -i \"{screenshotPath}\"",
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    });
+                    ps?.WaitForExit(3000);
+                    DownloadDetailText.Text = ps?.ExitCode == 0
+                        ? $"Screenshot copied to clipboard: {ts:hh\\:mm\\:ss}"
+                        : $"Screenshot saved: {screenshotPath} (install xclip for clipboard support)";
+                }
+            }
+            else
+            {
+                DownloadDetailText.Text = "Screenshot failed — file not created";
+            }
+        }
+        catch (Exception ex)
+        {
+            DownloadDetailText.Text = $"Screenshot failed: {ex.Message}";
+        }
+    }
+
+    // ── Enhance ─────────────────────────────────────────────────────────
+
+    private async void EnhanceButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (!isVideoLoaded || players[currentWindowIndex] == null) return;
+
+        try
+        {
+            var ts = TimeSpan.FromSeconds(players[currentWindowIndex]!.Position);
+            var screenshotPath = Path.Combine(CacheDir, $"enhance_{ts:hh\\-mm\\-ss}.png");
+
+            players[currentWindowIndex]!.Command("screenshot-to-file", screenshotPath, "video");
+            await Task.Delay(300);
+
+            if (File.Exists(screenshotPath))
+            {
+                var window = new EnhanceWindow(screenshotPath, players[currentWindowIndex]!.Position);
+                window.Show();
+            }
+            else
+            {
+                DownloadDetailText.Text = "Enhance failed — could not capture frame";
+            }
+        }
+        catch (Exception ex)
+        {
+            DownloadDetailText.Text = $"Enhance failed: {ex.Message}";
+        }
+    }
+
+    // ── Timeline ────────────────────────────────────────────────────────
+
+    private const int TimelineThumbnailCount = 40;
+    private const int ThumbWidth = 160;
+    private const int ThumbHeight = 90;
+    private bool _timelineGenerated;
+
+    private void TimelineButton_Click(object? sender, RoutedEventArgs e)
+    {
+        OpenTimelineBrowser();
+    }
+
+    public async Task GenerateTimeline()
+    {
+        if (string.IsNullOrEmpty(selectedVideoFile) || totalDurationSec <= 0) return;
+
+        _timelineGenerated = true;
+        TimelineThumbnails.Children.Clear();
+
+        var thumbs = await Task.Run(() => GenerateThumbnailImages());
+
+        for (int i = 0; i < thumbs.Count; i++)
+        {
+            var (bitmap, seconds) = thumbs[i];
+            var ts = TimeSpan.FromSeconds(seconds);
+
+            var panel = new StackPanel { Margin = new Thickness(3, 0) };
+
+            var img = new Image
+            {
+                Source = bitmap,
+                Width = 150,
+                Height = 85,
+                Stretch = Stretch.Uniform,
+                Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
+            };
+
+            var label = new TextBlock
+            {
+                Text = $"{ts.Hours:00}:{ts.Minutes:00}:{ts.Seconds:00}",
+                Foreground = Brushes.GreenYellow,
+                FontSize = 10,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
+            };
+
+            double seekTo = seconds;
+            img.PointerPressed += (_, _) => JumpToTimeline(seekTo);
+
+            panel.Children.Add(img);
+            panel.Children.Add(label);
+            TimelineThumbnails.Children.Add(panel);
+        }
+    }
+
+    private List<(WriteableBitmap bitmap, double seconds)> GenerateThumbnailImages()
+    {
+        var results = new List<(WriteableBitmap, double)>();
+
+        var probe = new MpvPlayer();
+        try
+        {
+            probe.SetOption("vo", "libmpv");
+            probe.SetOption("ao", "null");
+            probe.SetOption("pause", "yes");
+            probe.SetOption("hr-seek", "yes");
+            probe.Initialize();
+
+            // Create software render context
+            IntPtr renderCtx;
+            unsafe
+            {
+                var apiTypeStr = Marshal.StringToCoTaskMemAnsi("sw");
+                int advCtrl = 0;
+                var createParams = stackalloc MpvInterop.MpvRenderParam[3];
+                createParams[0] = new MpvInterop.MpvRenderParam { Type = MpvInterop.MPV_RENDER_PARAM_API_TYPE, Data = apiTypeStr };
+                createParams[1] = new MpvInterop.MpvRenderParam { Type = MpvInterop.MPV_RENDER_PARAM_ADVANCED_CONTROL, Data = (IntPtr)(&advCtrl) };
+                createParams[2] = new MpvInterop.MpvRenderParam { Type = MpvInterop.MPV_RENDER_PARAM_INVALID, Data = IntPtr.Zero };
+                int err = MpvInterop.mpv_render_context_create(out renderCtx, probe.Handle, createParams);
+                Marshal.FreeCoTaskMem(apiTypeStr);
+                if (err < 0) return results;
+            }
+
+            probe.LoadFile(selectedVideoFile);
+            Thread.Sleep(500);
+
+            var buffer = Marshal.AllocHGlobal(ThumbWidth * ThumbHeight * 4);
+            try
+            {
+                double interval = totalDurationSec / TimelineThumbnailCount;
+                for (int i = 0; i < TimelineThumbnailCount; i++)
+                {
+                    double seekPos = i * interval;
+                    probe.Seek(seekPos);
+                    Thread.Sleep(80);
+
+                    unsafe
+                    {
+                        int stride = ThumbWidth * 4;
+                        var size = stackalloc int[2];
+                        size[0] = ThumbWidth;
+                        size[1] = ThumbHeight;
+                        uint strideVal = (uint)stride;
+                        var formatStr = Marshal.StringToCoTaskMemAnsi("bgra");
+
+                        var renderParams = stackalloc MpvInterop.MpvRenderParam[5];
+                        renderParams[0] = new MpvInterop.MpvRenderParam { Type = 17, Data = (IntPtr)size };
+                        renderParams[1] = new MpvInterop.MpvRenderParam { Type = 18, Data = formatStr };
+                        renderParams[2] = new MpvInterop.MpvRenderParam { Type = 19, Data = (IntPtr)(&strideVal) };
+                        renderParams[3] = new MpvInterop.MpvRenderParam { Type = 20, Data = buffer };
+                        renderParams[4] = new MpvInterop.MpvRenderParam { Type = MpvInterop.MPV_RENDER_PARAM_INVALID, Data = IntPtr.Zero };
+
+                        int renderErr = MpvInterop.mpv_render_context_render(renderCtx, renderParams);
+                        Marshal.FreeCoTaskMem(formatStr);
+
+                        if (renderErr >= 0)
+                        {
+                            var bitmap = new WriteableBitmap(
+                                new PixelSize(ThumbWidth, ThumbHeight),
+                                new Vector(96, 96),
+                                Avalonia.Platform.PixelFormat.Bgra8888,
+                                Avalonia.Platform.AlphaFormat.Premul);
+
+                            using (var fb = bitmap.Lock())
+                            {
+                                Buffer.MemoryCopy((void*)buffer, (void*)fb.Address,
+                                    fb.RowBytes * ThumbHeight, stride * ThumbHeight);
+                            }
+                            results.Add((bitmap, seekPos));
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+                MpvInterop.mpv_render_context_free(renderCtx);
+            }
+        }
+        finally
+        {
+            probe.Dispose();
+        }
+
+        return results;
+    }
+
+    public void JumpFromTimeline(double seconds) => JumpToTimeline(seconds);
+
+    private async void JumpToTimeline(double seconds)
+    {
+        if (!isVideoLoaded || players[0] == null) return;
+
+        // Re-split from this point: each window covers an equal segment from here to the end
+        var remaining = totalDurationSec - seconds;
+        if (remaining <= 0) return;
+
+        var segmentDuration = remaining / numWindows;
+        for (int i = 0; i < numWindows; i++)
+            startPositionsSec[i] = seconds + (i * segmentDuration);
+
+        PositionSlider.Maximum = segmentDuration;
+        PositionSlider.Value = 0;
+
+        // Seek with retry
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            bool allGood = true;
+            for (int i = 0; i < numWindows; i++)
+            {
+                if (players[i] == null) continue;
+                var current = players[i]!.Position;
+                if (Math.Abs(current - startPositionsSec[i]) > 2.0)
+                {
+                    players[i]!.Command("seek", startPositionsSec[i].ToString("F1", System.Globalization.CultureInfo.InvariantCulture), "absolute", "exact");
+                    allGood = false;
+                }
+            }
+            if (allGood) break;
+            await Task.Delay(500);
+        }
+
+        for (int i = 0; i < numWindows; i++)
+        {
+            if (timeLabels[i] != null)
+            {
+                var ts = TimeSpan.FromSeconds(startPositionsSec[i]);
+                timeLabels[i].Text = $"{ts.Hours:00}:{ts.Minutes:00}:{ts.Seconds:00}";
+            }
+        }
+
+        // Make sure playing
+        for (int i = 0; i < numWindows; i++)
+            players[i]?.Resume();
+    }
+
+    private void OpenTimelineBrowser()
+    {
+        if (!isVideoLoaded || string.IsNullOrEmpty(selectedVideoFile)) return;
+        var browser = new TimelineBrowser(selectedVideoFile, totalDurationSec, this);
+        browser.Show();
+    }
+
     // ── Speed ──────────────────────────────────────────────────────────
 
     private void SpeedDownButton_Click(object? sender, RoutedEventArgs e)
@@ -798,6 +1176,7 @@ public partial class MainWindow : Window
             isVideoLoaded = false;
 
             numWindows = n;
+            SavePrefs();
             expandedIndex = -1;
             currentWindowIndex = 0;
             RefreshVideoLayout();

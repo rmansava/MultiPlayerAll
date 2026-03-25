@@ -21,4 +21,11 @@
     <None Include="libmpv-2.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- Include setup guides -->
+  <ItemGroup>
+    <Content Include="SETUP-Windows.md" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="SETUP-Mac.md" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="SETUP-Linux.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

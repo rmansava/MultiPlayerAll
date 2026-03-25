@@ -8,7 +8,7 @@
         ExtendClientAreaTitleBarHeightHint="30"
         Background="#222222">
 
-    <Grid ColumnDefinitions="300,*">
+    <Grid ColumnDefinitions="250,*">
 
         <!-- Left Panel: Search and Video List -->
         <Grid Grid.Column="0" Margin="10" RowDefinitions="Auto,Auto,Auto,*">
@@ -36,7 +36,7 @@
         </Grid>
 
         <!-- Main Content Area -->
-        <Grid Grid.Column="1" RowDefinitions="30,Auto,Auto,Auto,*">
+        <Grid Grid.Column="1" RowDefinitions="30,Auto,Auto,Auto,*,Auto">
 
             <!-- Custom Title Bar -->
             <Grid Grid.Row="0" Background="#333333" PointerPressed="TitleBar_PointerPressed">
@@ -69,6 +69,9 @@
                 <Button Content="&gt;&gt;" Width="30" Click="SpeedUpButton_Click"/>
                 <Button x:Name="SyncButton" Content="Sync" Width="60" Click="SyncButton_Click"/>
                 <Button x:Name="FrameItButton" Content="Frame It" Width="70" Click="FrameItButton_Click"/>
+                <Button x:Name="ScreenshotButton" Content="Screenshot" Width="80" Click="ScreenshotButton_Click"/>
+                <Button x:Name="TimelineButton" Content="Timeline" Width="70" Click="TimelineButton_Click"/>
+                <Button x:Name="EnhanceButton" Content="Enhance" Width="70" Click="EnhanceButton_Click"/>
                 <Button x:Name="MuteButton" Content="Mute" Width="60" Click="MuteButton_Click"/>
                 <Button x:Name="VolumeDownButton" Content="Vol-" Width="50" Click="VolumeDownButton_Click"/>
                 <TextBlock x:Name="VolumeLabel" Text="100" Width="35" VerticalAlignment="Center"
@@ -118,6 +121,12 @@
                     </StackPanel>
                 </Border>
             </Grid>
+            <!-- Thumbnail Timeline Strip (always visible) -->
+            <Border Grid.Row="5" Background="#1a1a1a" Height="110">
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="TimelineThumbnails" Orientation="Horizontal" Margin="5,3"/>
+                </ScrollViewer>
+            </Border>
         </Grid>
     </Grid>
 </Window>
