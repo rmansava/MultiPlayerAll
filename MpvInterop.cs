@@ -80,6 +80,11 @@ public static class MpvInterop
         int format, out long data);
 
     [DllImport(LibMpv, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int mpv_get_property(IntPtr ctx,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
+        int format, out int data);
+
+    [DllImport(LibMpv, CallingConvention = CallingConvention.Cdecl)]
     public static extern int mpv_command(IntPtr ctx, IntPtr[] args);
 
     [DllImport(LibMpv, CallingConvention = CallingConvention.Cdecl)]
@@ -204,7 +209,14 @@ public class MpvPlayer : IDisposable
     public double Position => GetPropertyDouble("time-pos");
     public double Volume { get => GetPropertyDouble("volume"); set => SetProperty("volume", value.ToString()); }
     public double Speed { get => GetPropertyDouble("speed"); set => SetProperty("speed", value.ToString("F2")); }
-    public bool IsPaused => GetPropertyLong("pause") == 1;
+    public bool IsPaused
+    {
+        get
+        {
+            var err = MpvInterop.mpv_get_property(_handle, "pause", MpvInterop.MPV_FORMAT_FLAG, out int flag);
+            return err >= 0 && flag == 1;
+        }
+    }
 
     public void LoadFile(string path) => Command("loadfile", path);
     public void Seek(double seconds, string mode = "absolute") => Command("seek", seconds.ToString("F3"), mode);

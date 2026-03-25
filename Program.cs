@@ -29,16 +29,14 @@ class Program
             .UsePlatformDetect()
             .LogToTrace();
 
-        // Prefer native OpenGL (WGL) for mpv compatibility, fall back to default
         if (OperatingSystem.IsWindows())
         {
+            var useAngle = Environment.GetCommandLineArgs().Any(a => a == "--angle");
             builder = builder.With(new Win32PlatformOptions
             {
                 RenderingMode = new[]
                 {
-                    Win32RenderingMode.Wgl,
-                    Win32RenderingMode.AngleEgl,
-                    Win32RenderingMode.Software
+                    useAngle ? Win32RenderingMode.AngleEgl : Win32RenderingMode.Wgl
                 }
             });
         }
