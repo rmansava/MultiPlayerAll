@@ -207,8 +207,8 @@ public class MpvPlayer : IDisposable
 
     public double Duration => GetPropertyDouble("duration");
     public double Position => GetPropertyDouble("time-pos");
-    public double Volume { get => GetPropertyDouble("volume"); set => SetProperty("volume", value.ToString()); }
-    public double Speed { get => GetPropertyDouble("speed"); set => SetProperty("speed", value.ToString("F2")); }
+    public double Volume { get => GetPropertyDouble("volume"); set => SetProperty("volume", value.ToString(System.Globalization.CultureInfo.InvariantCulture)); }
+    public double Speed { get => GetPropertyDouble("speed"); set => SetProperty("speed", value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)); }
     public bool IsPaused
     {
         get
@@ -219,7 +219,7 @@ public class MpvPlayer : IDisposable
     }
 
     public void LoadFile(string path) => Command("loadfile", path);
-    public void Seek(double seconds, string mode = "absolute") => Command("seek", seconds.ToString("F3"), mode);
+    public void Seek(double seconds, string mode = "absolute") => Command("seek", seconds.ToString("F3", System.Globalization.CultureInfo.InvariantCulture), mode);
     public void Pause() => SetProperty("pause", "yes");
     public void Resume() => SetProperty("pause", "no");
     public void Stop() => Command("stop");

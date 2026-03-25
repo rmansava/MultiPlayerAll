@@ -91,9 +91,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Check local cache
+        // Check local cache (use hash prefix to avoid filename collisions across paths)
         var fileName = Path.GetFileName(remotePath);
-        var localPath = Path.Combine(CacheDir, SanitizeFileName(fileName));
+        var pathHash = remotePath.GetHashCode().ToString("X8");
+        var localPath = Path.Combine(CacheDir, $"{pathHash}_{SanitizeFileName(fileName)}");
 
         // Stream mode: play directly from HTTP URL (instant start)
         bool useStream = StreamRadio?.IsChecked == true;
@@ -280,6 +281,10 @@ public partial class MainWindow : Window
 
             EnsureVideoGrid();
             EnsureVideoPanels();
+
+            // Detach views before disposing players to avoid stale render contexts
+            for (int i = 0; i < MaxWindows; i++)
+                videoViews[i]?.DetachPlayer();
             DisposePlayers();
 
             // Probe duration with a temporary mpv instance
@@ -786,12 +791,18 @@ public partial class MainWindow : Window
         if (NumWindowsComboBox.SelectedItem is ComboBoxItem item &&
             int.TryParse(item.Content?.ToString(), out int n))
         {
+            // Stop and detach all players before changing layout
+            for (int i = 0; i < MaxWindows; i++)
+                videoViews[i]?.DetachPlayer();
+            DisposePlayers();
+            isVideoLoaded = false;
+
             numWindows = n;
             expandedIndex = -1;
             currentWindowIndex = 0;
             RefreshVideoLayout();
 
-            if (!string.IsNullOrEmpty(selectedVideoFile) && isVideoLoaded)
+            if (!string.IsNullOrEmpty(selectedVideoFile))
                 await LoadVideoAsync(selectedVideoFile);
         }
     }
@@ -805,7 +816,7 @@ public partial class MainWindow : Window
 
         try
         {
-            string url = $"{apiBaseUrl}/search?videoName={Uri.EscapeDataString(query)}";
+            string url = $"{apiBaseUrl}/quicksearch?videoName={Uri.EscapeDataString(query)}";
             var videos = await httpClient.GetFromJsonAsync<List<VideoInfo>>(url);
             VideoDataGrid.ItemsSource = videos;
         }

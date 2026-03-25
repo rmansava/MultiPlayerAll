@@ -11,14 +11,26 @@ class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        Directory.CreateDirectory(Path.GetDirectoryName(LogFile)!);
+
+        AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+        {
+            File.AppendAllText(LogFile, $"{DateTime.Now} [UnhandledException] {e.ExceptionObject}\n\n");
+        };
+
+        TaskScheduler.UnobservedTaskException += (s, e) =>
+        {
+            File.AppendAllText(LogFile, $"{DateTime.Now} [UnobservedTaskException] {e.Exception}\n\n");
+            e.SetObserved();
+        };
+
         try
         {
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         }
         catch (Exception ex)
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(LogFile)!);
-            File.WriteAllText(LogFile, $"{DateTime.Now}\n{ex}\n");
+            File.AppendAllText(LogFile, $"{DateTime.Now} [Main] {ex}\n\n");
             throw;
         }
     }

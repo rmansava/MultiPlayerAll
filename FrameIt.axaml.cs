@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -25,6 +26,8 @@ public partial class FrameIt : Window
     private readonly Image[] _frameImages = new Image[TotalFrames];
     private readonly WriteableBitmap[] _frameBitmaps = new WriteableBitmap[TotalFrames];
     private int _expandedIndex = -1;
+    private int _extractionVersion;
+    private bool _extracting;
 
     // mpv for frame extraction (offscreen)
     private MpvPlayer? _extractPlayer;
@@ -154,18 +157,25 @@ public partial class FrameIt : Window
 
     private async Task ExtractFrames()
     {
-        if (_extractPlayer == null || _renderContext == IntPtr.Zero)
+        if (_extractPlayer == null || _renderContext == IntPtr.Zero || _extracting)
             return;
+
+        _extracting = true;
+        var version = Interlocked.Increment(ref _extractionVersion);
 
         UpdateTimestamp();
 
         for (int i = 0; i < TotalFrames; i++)
         {
+            if (version != _extractionVersion) { _extracting = false; return; }
+
             double seekPos = _gridStartPosition + (i * FrameInterval);
             if (seekPos > _totalDuration) break;
 
             _extractPlayer.Seek(seekPos);
-            await Task.Delay(80); // wait for seek + decode
+            await Task.Delay(80);
+
+            if (version != _extractionVersion) { _extracting = false; return; }
 
             var bitmap = RenderFrame();
             if (bitmap != null)
@@ -175,6 +185,7 @@ public partial class FrameIt : Window
             }
         }
 
+        _extracting = false;
         StatusText.Text = $"Showing {TotalFrames} frames starting at {FormatTime(_gridStartPosition)}";
     }
 
