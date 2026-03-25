@@ -9,7 +9,7 @@
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="15,10" Spacing="15"
                     HorizontalAlignment="Center">
             <TextBlock Text="Interval:" Foreground="White" VerticalAlignment="Center"/>
-            <ComboBox x:Name="IntervalCombo" Width="120" SelectedIndex="2">
+            <ComboBox x:Name="IntervalCombo" Width="120" SelectedIndex="0">
                 <ComboBoxItem Content="5 seconds" Tag="5"/>
                 <ComboBoxItem Content="15 seconds" Tag="15"/>
                 <ComboBoxItem Content="30 seconds" Tag="30"/>
@@ -24,7 +24,6 @@
                 <ComboBoxItem Content="Large" Tag="360"/>
                 <ComboBoxItem Content="X-Large" Tag="480"/>
             </ComboBox>
-            <Button x:Name="GenerateButton" Content="Generate" Width="80" Click="GenerateButton_Click"/>
             <TextBlock x:Name="StatusText" Text="" Foreground="Gray" VerticalAlignment="Center"/>
         </StackPanel>
 

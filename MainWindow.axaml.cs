@@ -893,24 +893,21 @@ public partial class MainWindow : Window
         PositionSlider.Maximum = segmentDuration;
         PositionSlider.Value = 0;
 
-        // Seek with retry
-        for (int attempt = 0; attempt < 5; attempt++)
+        // Pause all during seek to prevent flickering
+        PauseAll();
+        await Task.Delay(100);
+
+        // Seek all players
+        for (int i = 0; i < numWindows; i++)
         {
-            bool allGood = true;
-            for (int i = 0; i < numWindows; i++)
-            {
-                if (players[i] == null) continue;
-                var current = players[i]!.Position;
-                if (Math.Abs(current - startPositionsSec[i]) > 2.0)
-                {
-                    players[i]!.Command("seek", startPositionsSec[i].ToString("F1", System.Globalization.CultureInfo.InvariantCulture), "absolute", "exact");
-                    allGood = false;
-                }
-            }
-            if (allGood) break;
-            await Task.Delay(500);
+            if (players[i] == null) continue;
+            players[i]!.Command("seek", startPositionsSec[i].ToString("F1", System.Globalization.CultureInfo.InvariantCulture), "absolute", "exact");
         }
 
+        // Wait for seeks to settle
+        await Task.Delay(500);
+
+        // Update labels
         for (int i = 0; i < numWindows; i++)
         {
             if (timeLabels[i] != null)
@@ -920,9 +917,8 @@ public partial class MainWindow : Window
             }
         }
 
-        // Make sure playing
-        for (int i = 0; i < numWindows; i++)
-            players[i]?.Resume();
+        // Resume playback
+        PlayAll();
     }
 
     private void OpenTimelineBrowser()
@@ -1177,4 +1173,10 @@ public class ThumbnailApiInfo
 {
     public double Timestamp { get; set; }
     public string Url { get; set; } = "";
+}
+
+public class ThumbnailApiResponse
+{
+    public string? Status { get; set; }
+    public List<ThumbnailApiInfo>? Thumbnails { get; set; }
 }
