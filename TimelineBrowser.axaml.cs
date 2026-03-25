@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Runtime.InteropServices;
+using System.IO;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
@@ -16,22 +17,21 @@ namespace MultiPlayerAll;
 
 public partial class TimelineBrowser : Window
 {
-    private const int ThumbW = 240;
-    private const int ThumbH = 135;
-
-    private readonly string _videoPath;
+    private readonly string _remotePath;
     private readonly double _totalDuration;
     private readonly MainWindow _mainWindow;
+    private readonly string _apiBaseUrl;
+    private readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(60) };
     private int _generationVersion;
 
-    public TimelineBrowser(string videoPath, double totalDuration, MainWindow mainWindow)
+    public TimelineBrowser(string remotePath, double totalDuration, MainWindow mainWindow, string apiBaseUrl)
     {
         InitializeComponent();
-        _videoPath = videoPath;
+        _remotePath = remotePath;
         _totalDuration = totalDuration;
         _mainWindow = mainWindow;
+        _apiBaseUrl = apiBaseUrl;
 
-        // Auto-generate on open with default interval
         Dispatcher.UIThread.InvokeAsync(async () =>
         {
             await Task.Delay(100);
@@ -39,10 +39,7 @@ public partial class TimelineBrowser : Window
         });
     }
 
-    private void GenerateButton_Click(object? sender, RoutedEventArgs e)
-    {
-        _ = Generate();
-    }
+    private void GenerateButton_Click(object? sender, RoutedEventArgs e) => _ = Generate();
 
     private int GetIntervalSeconds()
     {
@@ -54,149 +51,85 @@ public partial class TimelineBrowser : Window
     private async Task Generate()
     {
         var interval = GetIntervalSeconds();
-        var count = Math.Max(1, (int)(_totalDuration / interval));
         var version = Interlocked.Increment(ref _generationVersion);
 
         GenerateButton.IsEnabled = false;
-        StatusText.Text = $"Generating {count} thumbnails (every {interval}s)...";
+        StatusText.Text = "Requesting thumbnails from server...";
         ThumbnailPanel.Children.Clear();
 
-        var thumbs = await Task.Run(() => GenerateThumbnails(interval, count, version));
-
-        if (version != _generationVersion) return;
-
-        for (int i = 0; i < thumbs.Count; i++)
+        try
         {
-            var (bitmap, seconds) = thumbs[i];
-            var ts = TimeSpan.FromSeconds(seconds);
+            var url = $"{_apiBaseUrl}/thumbnails?path={Uri.EscapeDataString(_remotePath)}&interval={interval}&width=240&height=135";
+            var thumbInfos = await _httpClient.GetFromJsonAsync<List<ThumbnailApiInfo>>(url);
 
-            var panel = new StackPanel { Margin = new Thickness(4) };
+            if (version != _generationVersion) return;
 
-            var img = new Image
+            ThumbnailPanel.Children.Clear();
+
+            if (thumbInfos == null || thumbInfos.Count == 0)
             {
-                Source = bitmap,
-                Width = 230,
-                Height = 130,
-                Stretch = Stretch.Uniform,
-                Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
-            };
+                StatusText.Text = "No thumbnails generated — is ffmpeg installed on the server?";
+                GenerateButton.IsEnabled = true;
+                return;
+            }
 
-            var label = new TextBlock
+            var baseUrl = _apiBaseUrl.Replace("/api/VideoArchive", "");
+            StatusText.Text = $"Loading {thumbInfos.Count} thumbnails...";
+
+            foreach (var thumb in thumbInfos)
             {
-                Text = $"{ts.Hours:00}:{ts.Minutes:00}:{ts.Seconds:00}",
-                Foreground = Brushes.GreenYellow,
-                FontSize = 12,
-                FontWeight = FontWeight.Bold,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 2, 0, 0)
-            };
+                if (version != _generationVersion) return;
 
-            double seekTo = seconds;
-            img.PointerPressed += (_, _) =>
-            {
-                _mainWindow.JumpFromTimeline(seekTo);
-            };
+                var ts = TimeSpan.FromSeconds(thumb.Timestamp);
+                var panel = new StackPanel { Margin = new Thickness(4) };
 
-            panel.Children.Add(img);
-            panel.Children.Add(label);
-            ThumbnailPanel.Children.Add(panel);
+                var img = new Image
+                {
+                    Width = 230,
+                    Height = 130,
+                    Stretch = Stretch.Uniform,
+                    Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
+                };
+
+                try
+                {
+                    var imgData = await _httpClient.GetByteArrayAsync(baseUrl + thumb.Url);
+                    using var ms = new MemoryStream(imgData);
+                    img.Source = new Avalonia.Media.Imaging.Bitmap(ms);
+                }
+                catch { }
+
+                var label = new TextBlock
+                {
+                    Text = $"{ts.Hours:00}:{ts.Minutes:00}:{ts.Seconds:00}",
+                    Foreground = Brushes.GreenYellow,
+                    FontSize = 12,
+                    FontWeight = FontWeight.Bold,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 2, 0, 0)
+                };
+
+                double seekTo = thumb.Timestamp;
+                img.PointerPressed += (_, _) => _mainWindow.JumpFromTimeline(seekTo);
+
+                panel.Children.Add(img);
+                panel.Children.Add(label);
+                ThumbnailPanel.Children.Add(panel);
+            }
+
+            StatusText.Text = $"{thumbInfos.Count} thumbnails — click to jump";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"Failed: {ex.Message}";
         }
 
         GenerateButton.IsEnabled = true;
-        StatusText.Text = $"{thumbs.Count} thumbnails — click to jump";
     }
 
-    private List<(WriteableBitmap bitmap, double seconds)> GenerateThumbnails(int intervalSec, int count, int version)
+    protected override void OnClosing(WindowClosingEventArgs e)
     {
-        var results = new List<(WriteableBitmap, double)>();
-
-        var probe = new MpvPlayer();
-        try
-        {
-            probe.SetOption("vo", "libmpv");
-            probe.SetOption("ao", "null");
-            probe.SetOption("pause", "yes");
-            probe.SetOption("hr-seek", "yes");
-            probe.Initialize();
-
-            IntPtr renderCtx;
-            unsafe
-            {
-                var apiTypeStr = Marshal.StringToCoTaskMemAnsi("sw");
-                int advCtrl = 0;
-                var createParams = stackalloc MpvInterop.MpvRenderParam[3];
-                createParams[0] = new MpvInterop.MpvRenderParam { Type = MpvInterop.MPV_RENDER_PARAM_API_TYPE, Data = apiTypeStr };
-                createParams[1] = new MpvInterop.MpvRenderParam { Type = MpvInterop.MPV_RENDER_PARAM_ADVANCED_CONTROL, Data = (IntPtr)(&advCtrl) };
-                createParams[2] = new MpvInterop.MpvRenderParam { Type = MpvInterop.MPV_RENDER_PARAM_INVALID, Data = IntPtr.Zero };
-                int err = MpvInterop.mpv_render_context_create(out renderCtx, probe.Handle, createParams);
-                Marshal.FreeCoTaskMem(apiTypeStr);
-                if (err < 0) return results;
-            }
-
-            probe.LoadFile(_videoPath);
-            Thread.Sleep(500);
-
-            var buffer = Marshal.AllocHGlobal(ThumbW * ThumbH * 4);
-            try
-            {
-                for (int i = 0; i < count; i++)
-                {
-                    if (version != _generationVersion) break;
-
-                    double seekPos = i * intervalSec;
-                    if (seekPos >= _totalDuration) break;
-
-                    probe.Seek(seekPos);
-                    Thread.Sleep(60);
-
-                    unsafe
-                    {
-                        int stride = ThumbW * 4;
-                        var size = stackalloc int[2];
-                        size[0] = ThumbW;
-                        size[1] = ThumbH;
-                        uint strideVal = (uint)stride;
-                        var formatStr = Marshal.StringToCoTaskMemAnsi("bgra");
-
-                        var renderParams = stackalloc MpvInterop.MpvRenderParam[5];
-                        renderParams[0] = new MpvInterop.MpvRenderParam { Type = 17, Data = (IntPtr)size };
-                        renderParams[1] = new MpvInterop.MpvRenderParam { Type = 18, Data = formatStr };
-                        renderParams[2] = new MpvInterop.MpvRenderParam { Type = 19, Data = (IntPtr)(&strideVal) };
-                        renderParams[3] = new MpvInterop.MpvRenderParam { Type = 20, Data = buffer };
-                        renderParams[4] = new MpvInterop.MpvRenderParam { Type = MpvInterop.MPV_RENDER_PARAM_INVALID, Data = IntPtr.Zero };
-
-                        int renderErr = MpvInterop.mpv_render_context_render(renderCtx, renderParams);
-                        Marshal.FreeCoTaskMem(formatStr);
-
-                        if (renderErr >= 0)
-                        {
-                            var bitmap = new WriteableBitmap(
-                                new PixelSize(ThumbW, ThumbH),
-                                new Vector(96, 96),
-                                Avalonia.Platform.PixelFormat.Bgra8888,
-                                Avalonia.Platform.AlphaFormat.Premul);
-
-                            using (var fb = bitmap.Lock())
-                            {
-                                Buffer.MemoryCopy((void*)buffer, (void*)fb.Address,
-                                    fb.RowBytes * ThumbH, stride * ThumbH);
-                            }
-                            results.Add((bitmap, seekPos));
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(buffer);
-                MpvInterop.mpv_render_context_free(renderCtx);
-            }
-        }
-        finally
-        {
-            probe.Dispose();
-        }
-
-        return results;
+        _httpClient.Dispose();
+        base.OnClosing(e);
     }
 }

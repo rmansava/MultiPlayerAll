@@ -863,138 +863,97 @@ public partial class MainWindow : Window
         OpenTimelineBrowser();
     }
 
-    public async Task GenerateTimeline()
+    public async Task GenerateTimeline(int interval = 30)
     {
-        if (string.IsNullOrEmpty(selectedVideoFile) || totalDurationSec <= 0) return;
+        if (string.IsNullOrEmpty(selectedRemotePath) && string.IsNullOrEmpty(selectedVideoFile)) return;
+        if (totalDurationSec <= 0) return;
 
         _timelineGenerated = true;
         TimelineThumbnails.Children.Clear();
 
-        var thumbs = await Task.Run(() => GenerateThumbnailImages());
-
-        for (int i = 0; i < thumbs.Count; i++)
+        // Show loading indicator
+        var loadingText = new TextBlock
         {
-            var (bitmap, seconds) = thumbs[i];
-            var ts = TimeSpan.FromSeconds(seconds);
+            Text = "Loading thumbnails...",
+            Foreground = Brushes.Gray,
+            FontSize = 13,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            Margin = new Thickness(20, 0)
+        };
+        TimelineThumbnails.Children.Add(loadingText);
 
-            var panel = new StackPanel { Margin = new Thickness(3, 0) };
-
-            var img = new Image
-            {
-                Source = bitmap,
-                Width = 150,
-                Height = 85,
-                Stretch = Stretch.Uniform,
-                Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
-            };
-
-            var label = new TextBlock
-            {
-                Text = $"{ts.Hours:00}:{ts.Minutes:00}:{ts.Seconds:00}",
-                Foreground = Brushes.GreenYellow,
-                FontSize = 10,
-                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
-            };
-
-            double seekTo = seconds;
-            img.PointerPressed += (_, _) => JumpToTimeline(seekTo);
-
-            panel.Children.Add(img);
-            panel.Children.Add(label);
-            TimelineThumbnails.Children.Add(panel);
-        }
-    }
-
-    private List<(WriteableBitmap bitmap, double seconds)> GenerateThumbnailImages()
-    {
-        var results = new List<(WriteableBitmap, double)>();
-
-        var probe = new MpvPlayer();
         try
         {
-            probe.SetOption("vo", "libmpv");
-            probe.SetOption("ao", "null");
-            probe.SetOption("pause", "yes");
-            probe.SetOption("hr-seek", "yes");
-            probe.Initialize();
+            // Fetch from server API
+            var remotePath = !string.IsNullOrEmpty(selectedRemotePath) ? selectedRemotePath : selectedVideoFile;
+            var url = $"{apiBaseUrl}/thumbnails?path={Uri.EscapeDataString(remotePath)}&interval={interval}";
+            var thumbInfos = await httpClient.GetFromJsonAsync<List<ThumbnailApiInfo>>(url);
 
-            // Create software render context
-            IntPtr renderCtx;
-            unsafe
+            TimelineThumbnails.Children.Clear();
+
+            if (thumbInfos == null || thumbInfos.Count == 0)
             {
-                var apiTypeStr = Marshal.StringToCoTaskMemAnsi("sw");
-                int advCtrl = 0;
-                var createParams = stackalloc MpvInterop.MpvRenderParam[3];
-                createParams[0] = new MpvInterop.MpvRenderParam { Type = MpvInterop.MPV_RENDER_PARAM_API_TYPE, Data = apiTypeStr };
-                createParams[1] = new MpvInterop.MpvRenderParam { Type = MpvInterop.MPV_RENDER_PARAM_ADVANCED_CONTROL, Data = (IntPtr)(&advCtrl) };
-                createParams[2] = new MpvInterop.MpvRenderParam { Type = MpvInterop.MPV_RENDER_PARAM_INVALID, Data = IntPtr.Zero };
-                int err = MpvInterop.mpv_render_context_create(out renderCtx, probe.Handle, createParams);
-                Marshal.FreeCoTaskMem(apiTypeStr);
-                if (err < 0) return results;
-            }
-
-            probe.LoadFile(selectedVideoFile);
-            Thread.Sleep(500);
-
-            var buffer = Marshal.AllocHGlobal(ThumbWidth * ThumbHeight * 4);
-            try
-            {
-                double interval = totalDurationSec / TimelineThumbnailCount;
-                for (int i = 0; i < TimelineThumbnailCount; i++)
+                TimelineThumbnails.Children.Add(new TextBlock
                 {
-                    double seekPos = i * interval;
-                    probe.Seek(seekPos);
-                    Thread.Sleep(80);
-
-                    unsafe
-                    {
-                        int stride = ThumbWidth * 4;
-                        var size = stackalloc int[2];
-                        size[0] = ThumbWidth;
-                        size[1] = ThumbHeight;
-                        uint strideVal = (uint)stride;
-                        var formatStr = Marshal.StringToCoTaskMemAnsi("bgra");
-
-                        var renderParams = stackalloc MpvInterop.MpvRenderParam[5];
-                        renderParams[0] = new MpvInterop.MpvRenderParam { Type = 17, Data = (IntPtr)size };
-                        renderParams[1] = new MpvInterop.MpvRenderParam { Type = 18, Data = formatStr };
-                        renderParams[2] = new MpvInterop.MpvRenderParam { Type = 19, Data = (IntPtr)(&strideVal) };
-                        renderParams[3] = new MpvInterop.MpvRenderParam { Type = 20, Data = buffer };
-                        renderParams[4] = new MpvInterop.MpvRenderParam { Type = MpvInterop.MPV_RENDER_PARAM_INVALID, Data = IntPtr.Zero };
-
-                        int renderErr = MpvInterop.mpv_render_context_render(renderCtx, renderParams);
-                        Marshal.FreeCoTaskMem(formatStr);
-
-                        if (renderErr >= 0)
-                        {
-                            var bitmap = new WriteableBitmap(
-                                new PixelSize(ThumbWidth, ThumbHeight),
-                                new Vector(96, 96),
-                                Avalonia.Platform.PixelFormat.Bgra8888,
-                                Avalonia.Platform.AlphaFormat.Premul);
-
-                            using (var fb = bitmap.Lock())
-                            {
-                                Buffer.MemoryCopy((void*)buffer, (void*)fb.Address,
-                                    fb.RowBytes * ThumbHeight, stride * ThumbHeight);
-                            }
-                            results.Add((bitmap, seekPos));
-                        }
-                    }
-                }
+                    Text = "No thumbnails generated",
+                    Foreground = Brushes.Gray,
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+                });
+                return;
             }
-            finally
+
+            var baseUrl = apiBaseUrl.Replace("/api/VideoArchive", "");
+
+            foreach (var thumb in thumbInfos)
             {
-                Marshal.FreeHGlobal(buffer);
-                MpvInterop.mpv_render_context_free(renderCtx);
+                var ts = TimeSpan.FromSeconds(thumb.Timestamp);
+                var panel = new StackPanel { Margin = new Thickness(3, 0) };
+
+                var img = new Image
+                {
+                    Width = 150,
+                    Height = 85,
+                    Stretch = Stretch.Uniform,
+                    Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
+                };
+
+                // Load thumbnail image from server
+                try
+                {
+                    var imgUrl = baseUrl + thumb.Url;
+                    var imgData = await httpClient.GetByteArrayAsync(imgUrl);
+                    using var ms = new MemoryStream(imgData);
+                    img.Source = new Avalonia.Media.Imaging.Bitmap(ms);
+                }
+                catch { }
+
+                var label = new TextBlock
+                {
+                    Text = $"{ts.Hours:00}:{ts.Minutes:00}:{ts.Seconds:00}",
+                    Foreground = Brushes.GreenYellow,
+                    FontSize = 10,
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
+                };
+
+                double seekTo = thumb.Timestamp;
+                img.PointerPressed += (_, _) => JumpToTimeline(seekTo);
+
+                panel.Children.Add(img);
+                panel.Children.Add(label);
+                TimelineThumbnails.Children.Add(panel);
             }
         }
-        finally
+        catch (Exception ex)
         {
-            probe.Dispose();
+            TimelineThumbnails.Children.Clear();
+            TimelineThumbnails.Children.Add(new TextBlock
+            {
+                Text = $"Failed to load thumbnails: {ex.Message}",
+                Foreground = Brushes.OrangeRed,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                Margin = new Thickness(10, 0)
+            });
         }
-
-        return results;
     }
 
     public void JumpFromTimeline(double seconds) => JumpToTimeline(seconds);
@@ -1048,8 +1007,9 @@ public partial class MainWindow : Window
 
     private void OpenTimelineBrowser()
     {
-        if (!isVideoLoaded || string.IsNullOrEmpty(selectedVideoFile)) return;
-        var browser = new TimelineBrowser(selectedVideoFile, totalDurationSec, this);
+        if (!isVideoLoaded) return;
+        var remotePath = !string.IsNullOrEmpty(selectedRemotePath) ? selectedRemotePath : selectedVideoFile;
+        var browser = new TimelineBrowser(remotePath, totalDurationSec, this, apiBaseUrl);
         browser.Show();
     }
 
@@ -1291,4 +1251,10 @@ public class FileSizeInfo
 {
     public long Size { get; set; }
     public string FileName { get; set; } = "";
+}
+
+public class ThumbnailApiInfo
+{
+    public double Timestamp { get; set; }
+    public string Url { get; set; } = "";
 }
