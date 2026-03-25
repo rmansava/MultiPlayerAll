@@ -104,7 +104,7 @@ public partial class MainWindow : Window
 
         MuteButton.Content = "UnMute";
         UpdateVolumeLabel();
-        NumWindowsComboBox.SelectedIndex = 2; // default 4
+        NumWindowsComboBox.SelectedIndex = 0; // default 1 window
 
         VideoDataGrid.DoubleTapped += VideoDataGrid_DoubleTapped;
         PositionSlider.AddHandler(InputElement.PointerPressedEvent, PositionSlider_PointerPressed, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, true);
@@ -346,8 +346,8 @@ public partial class MainWindow : Window
         try
         {
             isVideoLoaded = false;
-            _timelineGenerated = false;
-            TimelineThumbnails.Children.Clear();
+            // timeline reset not needed — browser handles it
+            // timeline strip removed — Timeline Browser handles this now
             selectedVideoFile = videoPath;
             currentWindowIndex = 0;
             expandedIndex = -1;
@@ -452,9 +452,8 @@ public partial class MainWindow : Window
             ApplyAudioRouting();
             PlayPauseButton.Content = "Play/Pause";
 
-            // Auto-generate timeline strip (only for local files, not streams)
-            if (!_timelineGenerated && !selectedVideoFile.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                _ = GenerateTimeline();
+            // Pre-generate thumbnails in the background so they're ready when user clicks Timeline
+            _ = PreGenerateThumbnails();
         }
         catch (Exception ex)
         {
@@ -854,105 +853,26 @@ public partial class MainWindow : Window
     // ── Timeline ────────────────────────────────────────────────────────
 
     private const int TimelineThumbnailCount = 40;
-    private const int ThumbWidth = 160;
-    private const int ThumbHeight = 90;
-    private bool _timelineGenerated;
-
     private void TimelineButton_Click(object? sender, RoutedEventArgs e)
     {
         OpenTimelineBrowser();
     }
 
-    public async Task GenerateTimeline(int interval = 30)
+    private async Task PreGenerateThumbnails()
     {
-        if (string.IsNullOrEmpty(selectedRemotePath) && string.IsNullOrEmpty(selectedVideoFile)) return;
-        if (totalDurationSec <= 0) return;
-
-        _timelineGenerated = true;
-        TimelineThumbnails.Children.Clear();
-
-        // Show loading indicator
-        var loadingText = new TextBlock
-        {
-            Text = "Loading thumbnails...",
-            Foreground = Brushes.Gray,
-            FontSize = 13,
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-            Margin = new Thickness(20, 0)
-        };
-        TimelineThumbnails.Children.Add(loadingText);
-
         try
         {
-            // Fetch from server API
             var remotePath = !string.IsNullOrEmpty(selectedRemotePath) ? selectedRemotePath : selectedVideoFile;
-            var url = $"{apiBaseUrl}/thumbnails?path={Uri.EscapeDataString(remotePath)}&interval={interval}";
-            var thumbInfos = await httpClient.GetFromJsonAsync<List<ThumbnailApiInfo>>(url);
+            if (string.IsNullOrEmpty(remotePath)) return;
 
-            TimelineThumbnails.Children.Clear();
-
-            if (thumbInfos == null || thumbInfos.Count == 0)
-            {
-                TimelineThumbnails.Children.Add(new TextBlock
-                {
-                    Text = "No thumbnails generated",
-                    Foreground = Brushes.Gray,
-                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
-                });
-                return;
-            }
-
-            var baseUrl = apiBaseUrl.Replace("/api/VideoArchive", "");
-
-            foreach (var thumb in thumbInfos)
-            {
-                var ts = TimeSpan.FromSeconds(thumb.Timestamp);
-                var panel = new StackPanel { Margin = new Thickness(3, 0) };
-
-                var img = new Image
-                {
-                    Width = 150,
-                    Height = 85,
-                    Stretch = Stretch.Uniform,
-                    Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
-                };
-
-                // Load thumbnail image from server
-                try
-                {
-                    var imgUrl = baseUrl + thumb.Url;
-                    var imgData = await httpClient.GetByteArrayAsync(imgUrl);
-                    using var ms = new MemoryStream(imgData);
-                    img.Source = new Avalonia.Media.Imaging.Bitmap(ms);
-                }
-                catch { }
-
-                var label = new TextBlock
-                {
-                    Text = $"{ts.Hours:00}:{ts.Minutes:00}:{ts.Seconds:00}",
-                    Foreground = Brushes.GreenYellow,
-                    FontSize = 10,
-                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
-                };
-
-                double seekTo = thumb.Timestamp;
-                img.PointerPressed += (_, _) => JumpToTimeline(seekTo);
-
-                panel.Children.Add(img);
-                panel.Children.Add(label);
-                TimelineThumbnails.Children.Add(panel);
-            }
+            // Fire-and-forget request to server — warms cache at 5s intervals, 240x135 matches Timeline Browser default
+            var url = $"{apiBaseUrl}/thumbnails?path={Uri.EscapeDataString(remotePath)}&interval=5&width=240&height=135";
+            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+            await client.GetAsync(url);
         }
-        catch (Exception ex)
+        catch
         {
-            TimelineThumbnails.Children.Clear();
-            TimelineThumbnails.Children.Add(new TextBlock
-            {
-                Text = $"Failed to load thumbnails: {ex.Message}",
-                Foreground = Brushes.OrangeRed,
-                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-                Margin = new Thickness(10, 0)
-            });
+            // Silent — this is just pre-caching
         }
     }
 

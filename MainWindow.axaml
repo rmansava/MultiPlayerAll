@@ -121,12 +121,8 @@
                     </StackPanel>
                 </Border>
             </Grid>
-            <!-- Thumbnail Timeline Strip (always visible) -->
-            <Border Grid.Row="5" Background="#1a1a1a" Height="110">
-                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                    <StackPanel x:Name="TimelineThumbnails" Orientation="Horizontal" Margin="5,3"/>
-                </ScrollViewer>
-            </Border>
+
+
         </Grid>
     </Grid>
 </Window>

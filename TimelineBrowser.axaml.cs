@@ -21,8 +21,10 @@ public partial class TimelineBrowser : Window
     private readonly double _totalDuration;
     private readonly MainWindow _mainWindow;
     private readonly string _apiBaseUrl;
-    private readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(60) };
+    private readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromMinutes(5) };
     private int _generationVersion;
+    private int _thumbWidth = 240;
+    private int _thumbHeight = 135;
 
     public TimelineBrowser(string remotePath, double totalDuration, MainWindow mainWindow, string apiBaseUrl)
     {
@@ -40,6 +42,24 @@ public partial class TimelineBrowser : Window
     }
 
     private void GenerateButton_Click(object? sender, RoutedEventArgs e) => _ = Generate();
+
+    private void SizeCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (SizeCombo?.SelectedItem is ComboBoxItem item && item.Tag is string tag && int.TryParse(tag, out int w))
+        {
+            _thumbWidth = w;
+            _thumbHeight = (int)(w * 9.0 / 16.0);
+            // Resize existing thumbnails
+            foreach (var child in ThumbnailPanel.Children)
+            {
+                if (child is StackPanel panel && panel.Children.Count > 0 && panel.Children[0] is Image img)
+                {
+                    img.Width = _thumbWidth;
+                    img.Height = _thumbHeight;
+                }
+            }
+        }
+    }
 
     private int GetIntervalSeconds()
     {
@@ -85,8 +105,8 @@ public partial class TimelineBrowser : Window
 
                 var img = new Image
                 {
-                    Width = 230,
-                    Height = 130,
+                    Width = _thumbWidth,
+                    Height = _thumbHeight,
                     Stretch = Stretch.Uniform,
                     Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
                 };

@@ -17,6 +17,13 @@
                 <ComboBoxItem Content="2 minutes" Tag="120"/>
                 <ComboBoxItem Content="5 minutes" Tag="300"/>
             </ComboBox>
+            <TextBlock Text="Size:" Foreground="White" VerticalAlignment="Center"/>
+            <ComboBox x:Name="SizeCombo" Width="100" SelectedIndex="1" SelectionChanged="SizeCombo_SelectionChanged">
+                <ComboBoxItem Content="Small" Tag="160"/>
+                <ComboBoxItem Content="Medium" Tag="240"/>
+                <ComboBoxItem Content="Large" Tag="360"/>
+                <ComboBoxItem Content="X-Large" Tag="480"/>
+            </ComboBox>
             <Button x:Name="GenerateButton" Content="Generate" Width="80" Click="GenerateButton_Click"/>
             <TextBlock x:Name="StatusText" Text="" Foreground="Gray" VerticalAlignment="Center"/>
         </StackPanel>
