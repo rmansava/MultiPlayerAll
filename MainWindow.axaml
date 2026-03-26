@@ -93,9 +93,9 @@
                 <Button Content="+60" Tag="60" Height="22" Width="35" Click="SkipButton_Click"/>
                 <TextBlock Text="  " VerticalAlignment="Center"/>
                 <RadioButton x:Name="StreamRadio" Content="Stream" Foreground="White"
-                             GroupName="PlayMode" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                             IsChecked="True" GroupName="PlayMode" VerticalAlignment="Center" Margin="10,0,0,0"/>
                 <RadioButton x:Name="DownloadRadio" Content="Download" Foreground="White"
-                             IsChecked="True" GroupName="PlayMode" VerticalAlignment="Center"/>
+                             GroupName="PlayMode" VerticalAlignment="Center"/>
             </StackPanel>
 
             <!-- Slider -->

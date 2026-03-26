@@ -27,6 +27,8 @@ public partial class TimelineBrowser : Window
     private int _thumbHeight = 135;
     private int _loadedCount;
 
+    public TimelineBrowser() { InitializeComponent(); }
+
     public TimelineBrowser(string remotePath, double totalDuration, MainWindow mainWindow, string apiBaseUrl)
     {
         InitializeComponent();

@@ -39,6 +39,8 @@ public partial class FrameIt : Window
     private int _swWidth = 640;
     private int _swHeight = 360;
 
+    public FrameIt() { InitializeComponent(); }
+
     public FrameIt(string videoPath, double totalDuration, double startPosition)
     {
         InitializeComponent();
