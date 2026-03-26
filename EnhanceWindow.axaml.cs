@@ -448,6 +448,122 @@ public partial class EnhanceWindow : Window
 
     private static byte Clamp(double v) => (byte)Math.Clamp((int)v, 0, 255);
 
+    private async void AiEnhanceButton_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            StatusLabel.Text = "AI Enhance: Sending image to server...";
+            StatusLabel.Foreground = Brushes.Yellow;
+
+            // Save current processed image to temp file
+            var tempPath = Path.Combine(Path.GetTempPath(), "MultiPlayerAll", "ai_input.png");
+            _processed.Save(tempPath);
+
+            // Send to Real-ESRGAN server
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromMinutes(2) };
+            using var form = new System.Net.Http.MultipartFormDataContent();
+            var imageBytes = await File.ReadAllBytesAsync(tempPath);
+            form.Add(new System.Net.Http.ByteArrayContent(imageBytes), "image", "frame.png");
+            form.Add(new System.Net.Http.StringContent("4"), "scale");
+
+            StatusLabel.Text = "AI Enhance: Processing on server (may take 10-30 seconds)...";
+            var response = await client.PostAsync("http://rmansava.mynetgear.com:9191/api/VideoArchive/enhance", form);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var err = await response.Content.ReadAsStringAsync();
+                StatusLabel.Text = $"AI Enhance failed: {err.Substring(0, Math.Min(err.Length, 100))}";
+                StatusLabel.Foreground = Brushes.OrangeRed;
+                return;
+            }
+
+            var resultBytes = await response.Content.ReadAsByteArrayAsync();
+            using var ms = new MemoryStream(resultBytes);
+            var bmp = new Avalonia.Media.Imaging.Bitmap(ms);
+
+            // Convert to WriteableBitmap
+            int newW = bmp.PixelSize.Width, newH = bmp.PixelSize.Height;
+            var result = new WriteableBitmap(bmp.PixelSize, bmp.Dpi,
+                Avalonia.Platform.PixelFormat.Bgra8888, Avalonia.Platform.AlphaFormat.Premul);
+            using (var dst = result.Lock())
+                bmp.CopyPixels(new PixelRect(0, 0, newW, newH), dst.Address, dst.RowBytes * newH, dst.RowBytes);
+
+            _processed = result;
+            EnhancedImage.Source = _processed;
+            StatusLabel.Text = $"AI Enhance complete: {newW}x{newH}";
+            StatusLabel.Foreground = Brushes.GreenYellow;
+        }
+        catch (System.Net.Http.HttpRequestException)
+        {
+            StatusLabel.Text = "AI Enhance: Server not reachable";
+            StatusLabel.Foreground = Brushes.OrangeRed;
+        }
+        catch (Exception ex)
+        {
+            StatusLabel.Text = $"AI Enhance error: {ex.Message}";
+            StatusLabel.Foreground = Brushes.OrangeRed;
+        }
+    }
+
+    private async void OcrButton_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            StatusLabel.Text = "OCR: Sending image to Gemini...";
+            StatusLabel.Foreground = Brushes.Yellow;
+            OcrResultBox.IsVisible = true;
+            OcrResultBox.Text = "";
+
+            var tempPath = Path.Combine(Path.GetTempPath(), "MultiPlayerAll", "ocr_input.png");
+            _processed.Save(tempPath);
+
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            using var form = new System.Net.Http.MultipartFormDataContent();
+            var imageBytes = await File.ReadAllBytesAsync(tempPath);
+            var imageContent = new System.Net.Http.ByteArrayContent(imageBytes);
+            imageContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+            form.Add(imageContent, "image", "frame.png");
+
+            var response = await client.PostAsync("http://rmansava.mynetgear.com:9191/api/VideoArchive/ocr", form);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                OcrResultBox.Text = $"OCR failed: {response.StatusCode}";
+                StatusLabel.Text = "OCR failed";
+                StatusLabel.Foreground = Brushes.OrangeRed;
+                return;
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            var doc = System.Text.Json.JsonDocument.Parse(json);
+            var text = doc.RootElement.GetProperty("text").GetString() ?? "No text found";
+
+            OcrResultBox.Text = text;
+            StatusLabel.Text = "OCR complete";
+            StatusLabel.Foreground = Brushes.GreenYellow;
+        }
+        catch (Exception ex)
+        {
+            OcrResultBox.Text = $"OCR error: {ex.Message}";
+            StatusLabel.Text = "OCR failed";
+            StatusLabel.Foreground = Brushes.OrangeRed;
+        }
+    }
+
+    private void AutoTextButton_Click(object? sender, RoutedEventArgs e)
+    {
+        // Optimal preset for reading blurry text
+        GrayscaleCheck.IsChecked = true;
+        ContrastSlider.Value = 40;
+        GammaSlider.Value = 130;
+        SharpnessSlider.Value = 60;
+        DenoiseSlider.Value = 20;
+        ClaheSlider.Value = 40;
+        ThresholdSlider.Value = 0;
+        EdgeSlider.Value = 0;
+        InvertCheck.IsChecked = false;
+    }
+
     private void ResetButton_Click(object? sender, RoutedEventArgs e)
     {
         BrightnessSlider.Value = 0;

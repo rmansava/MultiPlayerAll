@@ -32,7 +32,6 @@ public partial class FrameIt : Window
     // mpv for frame extraction (offscreen)
     private MpvPlayer? _extractPlayer;
     private IntPtr _renderContext;
-    private MpvInterop.MpvOpenglGetProcAddressFn? _getProcAddressDelegate;
 
     // Software rendering buffer
     private IntPtr _swBuffer;

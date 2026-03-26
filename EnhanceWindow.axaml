@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="MultiPlayerAll.EnhanceWindow"
-        Title="Enhance" Width="1000" Height="750"
+        Title="Enhance" Width="1100" Height="800"
         WindowStartupLocation="CenterScreen"
         Background="#222222">
 
@@ -22,13 +22,55 @@
         <Border Grid.Row="1" Background="#2a2a2a" Padding="10,8">
             <Grid ColumnDefinitions="*,*">
 
-                <!-- Left column -->
+                <!-- Left column: AI actions, buttons, OCR results, checkboxes -->
                 <StackPanel Grid.Column="0" Spacing="4" Margin="0,0,10,0">
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <TextBlock Text="Enhance" Foreground="White" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
                         <TextBlock x:Name="TimestampLabel" Text="" Foreground="GreenYellow" FontSize="11" VerticalAlignment="Center"/>
                         <TextBlock x:Name="ZoomLabel" Text="Zoom: 100%" Foreground="Gray" FontSize="10" VerticalAlignment="Center"/>
                     </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,4,0,0">
+                        <Button Content="AI Enhance" Width="90" Click="AiEnhanceButton_Click"
+                                Background="#2d5a2d" Foreground="White" FontWeight="Bold"/>
+                        <Button Content="OCR" Width="55" Click="OcrButton_Click"
+                                Background="#5a2d5a" Foreground="White" FontWeight="Bold"/>
+                        <Button Content="Auto Text" Width="75" Click="AutoTextButton_Click"
+                                Background="#2d4a5a" Foreground="White"/>
+                        <Button Content="Reset" Width="55" Click="ResetButton_Click"/>
+                        <Button Content="Copy" Width="55" Click="CopyButton_Click"/>
+                        <Button Content="Save As" Width="60" Click="SaveButton_Click"/>
+                    </StackPanel>
+
+                    <TextBlock x:Name="StatusLabel" Text="" Foreground="Yellow" FontSize="11" Margin="0,2,0,0"/>
+
+                    <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,2,0,0">
+                        <CheckBox x:Name="GrayscaleCheck" Content="Grayscale" Foreground="White" FontSize="11"/>
+                        <CheckBox x:Name="InvertCheck" Content="Invert" Foreground="White" FontSize="11"/>
+                        <TextBlock Text="Channel:" Foreground="White" FontSize="11" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="ChannelCombo" Width="70" SelectedIndex="0" SelectionChanged="ChannelCombo_SelectionChanged">
+                            <ComboBoxItem Content="All" Tag="all"/>
+                            <ComboBoxItem Content="Red" Tag="r"/>
+                            <ComboBoxItem Content="Green" Tag="g"/>
+                            <ComboBoxItem Content="Blue" Tag="b"/>
+                        </ComboBox>
+                        <TextBlock Text="Upscale:" Foreground="White" FontSize="11" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="UpscaleCombo" Width="70" SelectedIndex="0" SelectionChanged="UpscaleCombo_SelectionChanged">
+                            <ComboBoxItem Content="1x" Tag="1"/>
+                            <ComboBoxItem Content="2x" Tag="2"/>
+                            <ComboBoxItem Content="4x" Tag="4"/>
+                        </ComboBox>
+                    </StackPanel>
+
+                    <TextBox x:Name="OcrResultBox" IsReadOnly="True" AcceptsReturn="True"
+                             TextWrapping="Wrap" Height="80" IsVisible="False"
+                             Background="#333" Foreground="White" FontSize="12"
+                             Watermark="OCR results will appear here..." Margin="0,4,0,0"/>
+                </StackPanel>
+
+                <!-- Right column: manual sliders -->
+                <StackPanel Grid.Column="1" Spacing="4" Margin="10,0,0,0">
+                    <TextBlock Text="Manual Adjustments" Foreground="#888" FontSize="11"/>
 
                     <Grid ColumnDefinitions="80,*,30" Margin="0,2">
                         <TextBlock Text="Brightness" Foreground="White" FontSize="11" VerticalAlignment="Center"/>
@@ -55,28 +97,6 @@
                         <Slider x:Name="DenoiseSlider" Grid.Column="1" Minimum="0" Maximum="100" Value="0"/>
                         <TextBlock x:Name="DenoiseValue" Grid.Column="2" Text="0" Foreground="Gray" FontSize="10" VerticalAlignment="Center"/>
                     </Grid>
-                </StackPanel>
-
-                <!-- Right column -->
-                <StackPanel Grid.Column="1" Spacing="4" Margin="10,0,0,0">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <CheckBox x:Name="GrayscaleCheck" Content="Grayscale" Foreground="White" FontSize="11"/>
-                        <CheckBox x:Name="InvertCheck" Content="Invert" Foreground="White" FontSize="11"/>
-                        <TextBlock Text="Channel:" Foreground="White" FontSize="11" VerticalAlignment="Center" Margin="5,0,0,0"/>
-                        <ComboBox x:Name="ChannelCombo" Width="70" SelectedIndex="0" SelectionChanged="ChannelCombo_SelectionChanged">
-                            <ComboBoxItem Content="All" Tag="all"/>
-                            <ComboBoxItem Content="Red" Tag="r"/>
-                            <ComboBoxItem Content="Green" Tag="g"/>
-                            <ComboBoxItem Content="Blue" Tag="b"/>
-                        </ComboBox>
-                        <TextBlock Text="Upscale:" Foreground="White" FontSize="11" VerticalAlignment="Center" Margin="5,0,0,0"/>
-                        <ComboBox x:Name="UpscaleCombo" Width="70" SelectedIndex="0" SelectionChanged="UpscaleCombo_SelectionChanged">
-                            <ComboBoxItem Content="1x" Tag="1"/>
-                            <ComboBoxItem Content="2x" Tag="2"/>
-                            <ComboBoxItem Content="4x" Tag="4"/>
-                        </ComboBox>
-                    </StackPanel>
-
                     <Grid ColumnDefinitions="80,*,30" Margin="0,2">
                         <TextBlock Text="Threshold" Foreground="White" FontSize="11" VerticalAlignment="Center"/>
                         <Slider x:Name="ThresholdSlider" Grid.Column="1" Minimum="0" Maximum="255" Value="0"/>
@@ -92,12 +112,6 @@
                         <Slider x:Name="ClaheSlider" Grid.Column="1" Minimum="0" Maximum="100" Value="0"/>
                         <TextBlock x:Name="ClaheValue" Grid.Column="2" Text="Off" Foreground="Gray" FontSize="10" VerticalAlignment="Center"/>
                     </Grid>
-
-                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="0,4,0,0">
-                        <Button Content="Reset" Width="70" Click="ResetButton_Click"/>
-                        <Button Content="Copy" Width="70" Click="CopyButton_Click"/>
-                        <Button Content="Save As" Width="70" Click="SaveButton_Click"/>
-                    </StackPanel>
                 </StackPanel>
             </Grid>
         </Border>
