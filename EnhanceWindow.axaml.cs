@@ -17,7 +17,6 @@ public partial class EnhanceWindow : Window
     private readonly int _height;
     private readonly double _timestamp;
     private WriteableBitmap _processed;
-    private int _upscaleFactor = 1;
     private string _channel = "all";
 
     // Pan/Zoom
@@ -65,15 +64,6 @@ public partial class EnhanceWindow : Window
         ClaheSlider.ValueChanged += (_, _) => ApplyEnhancements();
         GrayscaleCheck.IsCheckedChanged += (_, _) => ApplyEnhancements();
         InvertCheck.IsCheckedChanged += (_, _) => ApplyEnhancements();
-    }
-
-    private void UpscaleCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (UpscaleCombo?.SelectedItem is ComboBoxItem item && item.Tag is string tag)
-        {
-            _upscaleFactor = int.Parse(tag);
-            ApplyEnhancements();
-        }
     }
 
     private void ChannelCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -157,19 +147,9 @@ public partial class EnhanceWindow : Window
         EdgeValue.Text = edge > 0 ? edge.ToString() : "Off";
         ClaheValue.Text = clahe > 0 ? clahe.ToString() : "Off";
 
-        // Upscale source if needed
-        int w = _width * _upscaleFactor;
-        int h = _height * _upscaleFactor;
-        WriteableBitmap source;
-
-        if (_upscaleFactor > 1)
-        {
-            source = Upscale(_original, _width, _height, _upscaleFactor);
-        }
-        else
-        {
-            source = _original;
-        }
+        int w = _width;
+        int h = _height;
+        var source = _original;
 
         var result = new WriteableBitmap(new PixelSize(w, h), _original.Dpi,
             Avalonia.Platform.PixelFormat.Bgra8888, Avalonia.Platform.AlphaFormat.Premul);
@@ -247,50 +227,6 @@ public partial class EnhanceWindow : Window
 
         _processed = result;
         EnhancedImage.Source = _processed;
-    }
-
-    private static unsafe WriteableBitmap Upscale(WriteableBitmap input, int srcW, int srcH, int factor)
-    {
-        int dstW = srcW * factor, dstH = srcH * factor;
-        var output = new WriteableBitmap(new PixelSize(dstW, dstH), input.Dpi,
-            Avalonia.Platform.PixelFormat.Bgra8888, Avalonia.Platform.AlphaFormat.Premul);
-
-        using var src = input.Lock();
-        using var dst = output.Lock();
-        byte* s = (byte*)src.Address;
-        byte* d = (byte*)dst.Address;
-        int srcStride = src.RowBytes, dstStride = dst.RowBytes;
-
-        for (int y = 0; y < dstH; y++)
-        {
-            double sy = (double)y / factor;
-            int y0 = Math.Clamp((int)sy, 0, srcH - 1);
-            int y1 = Math.Clamp(y0 + 1, 0, srcH - 1);
-            double fy = sy - y0;
-
-            for (int x = 0; x < dstW; x++)
-            {
-                double sx = (double)x / factor;
-                int x0 = Math.Clamp((int)sx, 0, srcW - 1);
-                int x1 = Math.Clamp(x0 + 1, 0, srcW - 1);
-                double fx = sx - x0;
-
-                for (int c = 0; c < 4; c++)
-                {
-                    double v00 = s[y0 * srcStride + x0 * 4 + c];
-                    double v10 = s[y0 * srcStride + x1 * 4 + c];
-                    double v01 = s[y1 * srcStride + x0 * 4 + c];
-                    double v11 = s[y1 * srcStride + x1 * 4 + c];
-
-                    double v = v00 * (1 - fx) * (1 - fy) + v10 * fx * (1 - fy) +
-                               v01 * (1 - fx) * fy + v11 * fx * fy;
-
-                    d[y * dstStride + x * 4 + c] = (byte)Math.Clamp((int)v, 0, 255);
-                }
-            }
-        }
-
-        return output;
     }
 
     private static unsafe WriteableBitmap BoxBlur(WriteableBitmap input, int w, int h, int radius)
@@ -511,7 +447,7 @@ public partial class EnhanceWindow : Window
         {
             StatusLabel.Text = "OCR: Sending image to Gemini...";
             StatusLabel.Foreground = Brushes.Yellow;
-            OcrResultBox.IsVisible = true;
+            OcrScrollViewer.IsVisible = true;
             OcrResultBox.Text = "";
 
             var tempPath = Path.Combine(Path.GetTempPath(), "MultiPlayerAll", "ocr_input.png");
@@ -576,9 +512,7 @@ public partial class EnhanceWindow : Window
         ClaheSlider.Value = 0;
         GrayscaleCheck.IsChecked = false;
         InvertCheck.IsChecked = false;
-        UpscaleCombo.SelectedIndex = 0;
         ChannelCombo.SelectedIndex = 0;
-        _upscaleFactor = 1;
         _channel = "all";
         _zoomLevel = 1.0;
         _panX = _panY = 0;

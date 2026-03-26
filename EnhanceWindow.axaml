@@ -5,7 +5,7 @@
         WindowStartupLocation="CenterScreen"
         Background="#222222">
 
-    <Grid RowDefinitions="*,Auto">
+    <Grid RowDefinitions="2*,*">
 
         <!-- Image display with pan/zoom -->
         <Border Grid.Row="0" ClipToBounds="True" Background="Black"
@@ -54,18 +54,15 @@
                             <ComboBoxItem Content="Green" Tag="g"/>
                             <ComboBoxItem Content="Blue" Tag="b"/>
                         </ComboBox>
-                        <TextBlock Text="Upscale:" Foreground="White" FontSize="11" VerticalAlignment="Center"/>
-                        <ComboBox x:Name="UpscaleCombo" Width="70" SelectedIndex="0" SelectionChanged="UpscaleCombo_SelectionChanged">
-                            <ComboBoxItem Content="1x" Tag="1"/>
-                            <ComboBoxItem Content="2x" Tag="2"/>
-                            <ComboBoxItem Content="4x" Tag="4"/>
-                        </ComboBox>
                     </StackPanel>
 
-                    <TextBox x:Name="OcrResultBox" IsReadOnly="True" AcceptsReturn="True"
-                             TextWrapping="Wrap" Height="80" IsVisible="False"
-                             Background="#333" Foreground="White" FontSize="12"
-                             Watermark="OCR results will appear here..." Margin="0,4,0,0"/>
+                    <ScrollViewer x:Name="OcrScrollViewer" IsVisible="False" VerticalScrollBarVisibility="Auto"
+                                  MaxHeight="200" Margin="0,4,0,0">
+                        <TextBox x:Name="OcrResultBox" IsReadOnly="True" AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 Background="#333" Foreground="White" FontSize="12"
+                                 Watermark="OCR results will appear here..."/>
+                    </ScrollViewer>
                 </StackPanel>
 
                 <!-- Right column: manual sliders -->
