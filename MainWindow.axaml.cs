@@ -149,6 +149,9 @@ public partial class MainWindow : Window
     private async void ProcessCommandLineArgs()
     {
         var args = Environment.GetCommandLineArgs();
+        File.AppendAllText(Path.Combine(CacheDir, "crash.log"),
+            $"{DateTime.Now} Args: [{string.Join("] [", args)}]\n");
+
         string? path = null;
         string? title = null;
         double time = 0;
@@ -175,7 +178,7 @@ public partial class MainWindow : Window
                         if (kv.Length == 2)
                         {
                             var key = Uri.UnescapeDataString(kv[0]);
-                            var val = Uri.UnescapeDataString(kv[1]);
+                            var val = Uri.UnescapeDataString(kv[1].Replace('+', ' '));
                             if (key == "path") path = val;
                             else if (key == "title") title = val;
                             else if (key == "time")
@@ -192,8 +195,20 @@ public partial class MainWindow : Window
 
         if (!string.IsNullOrEmpty(path))
         {
+            // Fix UNC paths that lost a leading backslash during URL encoding
+            if (path.StartsWith("\\") && !path.StartsWith("\\\\"))
+                path = "\\" + path;
+
+            File.AppendAllText(Path.Combine(CacheDir, "crash.log"),
+                $"{DateTime.Now} Resolved: path=[{path}] title=[{title}] time={time}\n");
+
             await Task.Delay(500);
             selectedRemotePath = path;
+
+            // Show filename in search bar for context
+            var displayName = Path.GetFileNameWithoutExtension(path);
+            SearchTextBox.Text = displayName;
+
             await DownloadAndPlay(path);
         }
         else if (!string.IsNullOrEmpty(title))
