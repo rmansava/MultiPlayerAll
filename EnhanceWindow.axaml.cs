@@ -447,7 +447,7 @@ public partial class EnhanceWindow : Window
         {
             StatusLabel.Text = "OCR: Sending image to Gemini...";
             StatusLabel.Foreground = Brushes.Yellow;
-            OcrScrollViewer.IsVisible = true;
+            // OCR box is always visible now
             OcrResultBox.Text = "";
 
             var tempPath = Path.Combine(Path.GetTempPath(), "MultiPlayerAll", "ocr_input.png");

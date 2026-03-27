@@ -1,14 +1,14 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="MultiPlayerAll.MainWindow"
-        Title="MultiPlayer" Width="1200" Height="600"
+        Title="MultiPlayer" Width="1280" Height="700"
         WindowStartupLocation="CenterScreen"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaChromeHints="NoChrome"
         ExtendClientAreaTitleBarHeightHint="30"
         Background="#222222">
 
-    <Grid ColumnDefinitions="250,*">
+    <Grid ColumnDefinitions="200,*">
 
         <!-- Left Panel: Search and Video List -->
         <Grid Grid.Column="0" Margin="10" RowDefinitions="Auto,Auto,Auto,*">
@@ -53,44 +53,43 @@
             </Grid>
 
             <!-- Control Panel -->
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="10" Spacing="10">
-                <TextBlock Text="Windows" Foreground="White" VerticalAlignment="Center"/>
-                <ComboBox x:Name="NumWindowsComboBox" Width="80" SelectionChanged="NumWindowsComboBox_SelectionChanged">
+            <WrapPanel Grid.Row="1" Margin="5,5" Orientation="Horizontal">
+                <TextBlock Text="Windows" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                <ComboBox x:Name="NumWindowsComboBox" Width="60" Margin="0,0,5,0" SelectionChanged="NumWindowsComboBox_SelectionChanged">
                     <ComboBoxItem Content="1"/>
                     <ComboBoxItem Content="2"/>
                     <ComboBoxItem Content="4"/>
                     <ComboBoxItem Content="9"/>
                 </ComboBox>
-                <Button x:Name="PlayPauseButton" Content="Play/Pause" Width="100" Click="PlayPauseButton_Click"/>
-                <Button x:Name="StopButton" Content="Stop" Width="60" Click="StopButton_Click"/>
-                <Button Content="&lt;&lt;" Width="30" Click="SpeedDownButton_Click"/>
-                <TextBlock x:Name="SpeedLabel" Text="1x" Width="30" VerticalAlignment="Center"
+                <Button x:Name="PlayPauseButton" Content="Play/Pause" Margin="0,0,3,2" Click="PlayPauseButton_Click"/>
+                <Button x:Name="StopButton" Content="Stop" Margin="0,0,3,2" Click="StopButton_Click"/>
+                <Button Content="&lt;&lt;" Width="30" Margin="0,0,1,2" Click="SpeedDownButton_Click"/>
+                <TextBlock x:Name="SpeedLabel" Text="1x" Width="25" VerticalAlignment="Center"
                            Foreground="White" TextAlignment="Center"/>
-                <Button Content="&gt;&gt;" Width="30" Click="SpeedUpButton_Click"/>
-                <Button x:Name="SyncButton" Content="Sync" Width="60" Click="SyncButton_Click"/>
-                <Button x:Name="FrameItButton" Content="Frame It" Width="70" Click="FrameItButton_Click"/>
-                <Button x:Name="ScreenshotButton" Content="Screenshot" Width="80" Click="ScreenshotButton_Click"/>
-                <Button x:Name="TimelineButton" Content="Timeline" Width="70" Click="TimelineButton_Click"/>
-                <Button x:Name="EnhanceButton" Content="Enhance" Width="70" Click="EnhanceButton_Click"/>
-                <Button x:Name="MuteButton" Content="Mute" Width="60" Click="MuteButton_Click"/>
-                <Button x:Name="VolumeDownButton" Content="Vol-" Width="50" Click="VolumeDownButton_Click"/>
-                <TextBlock x:Name="VolumeLabel" Text="100" Width="35" VerticalAlignment="Center"
+                <Button Content="&gt;&gt;" Width="30" Margin="0,0,3,2" Click="SpeedUpButton_Click"/>
+                <Button x:Name="FrameItButton" Content="Frame It" Margin="0,0,3,2" Click="FrameItButton_Click"/>
+                <Button x:Name="ScreenshotButton" Content="Screenshot" Margin="0,0,3,2" Click="ScreenshotButton_Click"/>
+                <Button x:Name="TimelineButton" Content="Timeline" Margin="0,0,3,2" Click="TimelineButton_Click"/>
+                <Button x:Name="EnhanceButton" Content="Enhance" Margin="0,0,3,2" Click="EnhanceButton_Click"/>
+                <Button x:Name="MuteButton" Content="UnMute" Margin="0,0,3,2" Click="MuteButton_Click"/>
+                <Button x:Name="VolumeDownButton" Content="Vol-" Margin="0,0,1,2" Click="VolumeDownButton_Click"/>
+                <TextBlock x:Name="VolumeLabel" Text="100" Width="30" VerticalAlignment="Center"
                            Foreground="White" TextAlignment="Center"/>
-                <Button x:Name="VolumeUpButton" Content="Vol+" Width="50" Click="VolumeUpButton_Click"/>
-            </StackPanel>
+                <Button x:Name="VolumeUpButton" Content="Vol+" Margin="0,0,0,2" Click="VolumeUpButton_Click"/>
+            </WrapPanel>
 
             <!-- Skip Buttons Row -->
             <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="10,0,10,0" Spacing="2">
-                <Button Content="-60" Tag="-60" Height="22" Width="35" Click="SkipButton_Click"/>
-                <Button Content="-30" Tag="-30" Height="22" Width="35" Click="SkipButton_Click"/>
-                <Button Content="-15" Tag="-15" Height="22" Width="35" Click="SkipButton_Click"/>
-                <Button Content="-5" Tag="-5" Height="22" Width="30" Click="SkipButton_Click"/>
-                <Button Content="-1" Tag="-1" Height="22" Width="30" Click="SkipButton_Click"/>
-                <Button Content="+1" Tag="1" Height="22" Width="30" Click="SkipButton_Click"/>
-                <Button Content="+5" Tag="5" Height="22" Width="30" Click="SkipButton_Click"/>
-                <Button Content="+15" Tag="15" Height="22" Width="35" Click="SkipButton_Click"/>
-                <Button Content="+30" Tag="30" Height="22" Width="35" Click="SkipButton_Click"/>
-                <Button Content="+60" Tag="60" Height="22" Width="35" Click="SkipButton_Click"/>
+                <Button Content="-60" Tag="-60" Height="30" Width="45" Click="SkipButton_Click"/>
+                <Button Content="-30" Tag="-30" Height="30" Width="45" Click="SkipButton_Click"/>
+                <Button Content="-15" Tag="-15" Height="30" Width="45" Click="SkipButton_Click"/>
+                <Button Content="-5" Tag="-5" Height="30" Width="40" Click="SkipButton_Click"/>
+                <Button Content="-1" Tag="-1" Height="30" Width="40" Click="SkipButton_Click"/>
+                <Button Content="+1" Tag="1" Height="30" Width="40" Click="SkipButton_Click"/>
+                <Button Content="+5" Tag="5" Height="30" Width="40" Click="SkipButton_Click"/>
+                <Button Content="+15" Tag="15" Height="30" Width="45" Click="SkipButton_Click"/>
+                <Button Content="+30" Tag="30" Height="30" Width="45" Click="SkipButton_Click"/>
+                <Button Content="+60" Tag="60" Height="30" Width="45" Click="SkipButton_Click"/>
                 <TextBlock Text="  " VerticalAlignment="Center"/>
                 <RadioButton x:Name="StreamRadio" Content="Stream" Foreground="White"
                              IsChecked="True" GroupName="PlayMode" VerticalAlignment="Center" Margin="10,0,0,0"/>

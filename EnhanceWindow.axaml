@@ -5,7 +5,7 @@
         WindowStartupLocation="CenterScreen"
         Background="#222222">
 
-    <Grid RowDefinitions="2*,*">
+    <Grid RowDefinitions="*,Auto">
 
         <!-- Image display with pan/zoom -->
         <Border Grid.Row="0" ClipToBounds="True" Background="Black"
@@ -18,37 +18,45 @@
                    RenderTransformOrigin="0%,0%"/>
         </Border>
 
-        <!-- Controls panel at bottom, two columns -->
-        <Border Grid.Row="1" Background="#2a2a2a" Padding="10,8">
-            <Grid ColumnDefinitions="*,*">
+        <!-- Controls panel at bottom, 3 columns -->
+        <Border Grid.Row="1" Background="#2a2a2a" Padding="10,8" Height="260">
+            <Grid ColumnDefinitions="*,*,*">
 
-                <!-- Left column: AI actions, buttons, OCR results, checkboxes -->
-                <StackPanel Grid.Column="0" Spacing="4" Margin="0,0,10,0">
-                    <StackPanel Orientation="Horizontal" Spacing="10">
-                        <TextBlock Text="Enhance" Foreground="White" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="TimestampLabel" Text="" Foreground="GreenYellow" FontSize="11" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="ZoomLabel" Text="Zoom: 100%" Foreground="Gray" FontSize="10" VerticalAlignment="Center"/>
+                <!-- Column 1: Actions + OCR Results -->
+                <StackPanel Grid.Column="0" Spacing="3" Margin="0,0,10,0">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="Enhance" Foreground="White" FontSize="13" FontWeight="Bold" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TimestampLabel" Text="" Foreground="GreenYellow" FontSize="10" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="ZoomLabel" Text="Zoom: 100%" Foreground="Gray" FontSize="9" VerticalAlignment="Center"/>
                     </StackPanel>
 
-                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,4,0,0">
-                        <Button Content="AI Enhance" Width="90" Click="AiEnhanceButton_Click"
-                                Background="#2d5a2d" Foreground="White" FontWeight="Bold"/>
-                        <Button Content="OCR" Width="55" Click="OcrButton_Click"
-                                Background="#5a2d5a" Foreground="White" FontWeight="Bold"/>
-                        <Button Content="Auto Text" Width="75" Click="AutoTextButton_Click"
-                                Background="#2d4a5a" Foreground="White"/>
-                        <Button Content="Reset" Width="55" Click="ResetButton_Click"/>
-                        <Button Content="Copy" Width="55" Click="CopyButton_Click"/>
-                        <Button Content="Save As" Width="60" Click="SaveButton_Click"/>
+                    <StackPanel Orientation="Horizontal" Spacing="3">
+                        <Button Content="AI Enhance" Width="80" Click="AiEnhanceButton_Click"
+                                Background="#2d5a2d" Foreground="White" FontWeight="Bold" FontSize="10" Padding="3,2"/>
+                        <Button Content="OCR" Width="40" Click="OcrButton_Click"
+                                Background="#5a2d5a" Foreground="White" FontWeight="Bold" FontSize="10" Padding="3,2"/>
+                        <Button Content="Reset" Width="45" Click="ResetButton_Click" FontSize="10" Padding="3,2"/>
+                        <Button Content="Copy" Width="45" Click="CopyButton_Click" FontSize="10" Padding="3,2"/>
+                        <Button Content="Save" Width="40" Click="SaveButton_Click" FontSize="10" Padding="3,2"/>
                     </StackPanel>
 
-                    <TextBlock x:Name="StatusLabel" Text="" Foreground="Yellow" FontSize="11" Margin="0,2,0,0"/>
+                    <TextBlock x:Name="StatusLabel" Text="" Foreground="Yellow" FontSize="10"/>
 
-                    <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,2,0,0">
-                        <CheckBox x:Name="GrayscaleCheck" Content="Grayscale" Foreground="White" FontSize="11"/>
-                        <CheckBox x:Name="InvertCheck" Content="Invert" Foreground="White" FontSize="11"/>
-                        <TextBlock Text="Channel:" Foreground="White" FontSize="11" VerticalAlignment="Center"/>
-                        <ComboBox x:Name="ChannelCombo" Width="70" SelectedIndex="0" SelectionChanged="ChannelCombo_SelectionChanged">
+                    <ScrollViewer x:Name="OcrScrollViewer" VerticalScrollBarVisibility="Auto" Margin="0,2,0,0">
+                        <TextBox x:Name="OcrResultBox" IsReadOnly="True" AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 Background="#333" Foreground="White" FontSize="11"
+                                 Watermark="Click OCR to read text from image..."/>
+                    </ScrollViewer>
+                </StackPanel>
+
+                <!-- Columns 2+3: Sliders with preset button centered -->
+                <StackPanel Grid.Column="1" Spacing="3" Margin="10,0">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <CheckBox x:Name="GrayscaleCheck" Content="Grayscale" Foreground="White" FontSize="10"/>
+                        <CheckBox x:Name="InvertCheck" Content="Invert" Foreground="White" FontSize="10"/>
+                        <TextBlock Text="Ch:" Foreground="White" FontSize="10" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="ChannelCombo" Width="60" SelectedIndex="0" SelectionChanged="ChannelCombo_SelectionChanged" FontSize="10">
                             <ComboBoxItem Content="All" Tag="all"/>
                             <ComboBoxItem Content="Red" Tag="r"/>
                             <ComboBoxItem Content="Green" Tag="g"/>
@@ -56,58 +64,52 @@
                         </ComboBox>
                     </StackPanel>
 
-                    <ScrollViewer x:Name="OcrScrollViewer" IsVisible="False" VerticalScrollBarVisibility="Auto"
-                                  MaxHeight="200" Margin="0,4,0,0">
-                        <TextBox x:Name="OcrResultBox" IsReadOnly="True" AcceptsReturn="True"
-                                 TextWrapping="Wrap"
-                                 Background="#333" Foreground="White" FontSize="12"
-                                 Watermark="OCR results will appear here..."/>
-                    </ScrollViewer>
+                    <Grid ColumnDefinitions="60,*,25">
+                        <TextBlock Text="Bright" Foreground="White" FontSize="10" VerticalAlignment="Center"/>
+                        <Slider x:Name="BrightnessSlider" Grid.Column="1" Minimum="-100" Maximum="100" Value="0"/>
+                        <TextBlock x:Name="BrightnessValue" Grid.Column="2" Text="0" Foreground="Gray" FontSize="9" VerticalAlignment="Center"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="60,*,25">
+                        <TextBlock Text="Contrast" Foreground="White" FontSize="10" VerticalAlignment="Center"/>
+                        <Slider x:Name="ContrastSlider" Grid.Column="1" Minimum="-100" Maximum="100" Value="0"/>
+                        <TextBlock x:Name="ContrastValue" Grid.Column="2" Text="0" Foreground="Gray" FontSize="9" VerticalAlignment="Center"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="60,*,25">
+                        <TextBlock Text="Gamma" Foreground="White" FontSize="10" VerticalAlignment="Center"/>
+                        <Slider x:Name="GammaSlider" Grid.Column="1" Minimum="10" Maximum="300" Value="100"/>
+                        <TextBlock x:Name="GammaValue" Grid.Column="2" Text="1.0" Foreground="Gray" FontSize="9" VerticalAlignment="Center"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="60,*,25">
+                        <TextBlock Text="Sharp" Foreground="White" FontSize="10" VerticalAlignment="Center"/>
+                        <Slider x:Name="SharpnessSlider" Grid.Column="1" Minimum="0" Maximum="100" Value="0"/>
+                        <TextBlock x:Name="SharpnessValue" Grid.Column="2" Text="0" Foreground="Gray" FontSize="9" VerticalAlignment="Center"/>
+                    </Grid>
                 </StackPanel>
 
-                <!-- Right column: manual sliders -->
-                <StackPanel Grid.Column="1" Spacing="4" Margin="10,0,0,0">
-                    <TextBlock Text="Manual Adjustments" Foreground="#888" FontSize="11"/>
-
-                    <Grid ColumnDefinitions="80,*,30" Margin="0,2">
-                        <TextBlock Text="Brightness" Foreground="White" FontSize="11" VerticalAlignment="Center"/>
-                        <Slider x:Name="BrightnessSlider" Grid.Column="1" Minimum="-100" Maximum="100" Value="0"/>
-                        <TextBlock x:Name="BrightnessValue" Grid.Column="2" Text="0" Foreground="Gray" FontSize="10" VerticalAlignment="Center"/>
-                    </Grid>
-                    <Grid ColumnDefinitions="80,*,30" Margin="0,2">
-                        <TextBlock Text="Contrast" Foreground="White" FontSize="11" VerticalAlignment="Center"/>
-                        <Slider x:Name="ContrastSlider" Grid.Column="1" Minimum="-100" Maximum="100" Value="0"/>
-                        <TextBlock x:Name="ContrastValue" Grid.Column="2" Text="0" Foreground="Gray" FontSize="10" VerticalAlignment="Center"/>
-                    </Grid>
-                    <Grid ColumnDefinitions="80,*,30" Margin="0,2">
-                        <TextBlock Text="Gamma" Foreground="White" FontSize="11" VerticalAlignment="Center"/>
-                        <Slider x:Name="GammaSlider" Grid.Column="1" Minimum="10" Maximum="300" Value="100"/>
-                        <TextBlock x:Name="GammaValue" Grid.Column="2" Text="1.0" Foreground="Gray" FontSize="10" VerticalAlignment="Center"/>
-                    </Grid>
-                    <Grid ColumnDefinitions="80,*,30" Margin="0,2">
-                        <TextBlock Text="Sharpness" Foreground="White" FontSize="11" VerticalAlignment="Center"/>
-                        <Slider x:Name="SharpnessSlider" Grid.Column="1" Minimum="0" Maximum="100" Value="0"/>
-                        <TextBlock x:Name="SharpnessValue" Grid.Column="2" Text="0" Foreground="Gray" FontSize="10" VerticalAlignment="Center"/>
-                    </Grid>
-                    <Grid ColumnDefinitions="80,*,30" Margin="0,2">
-                        <TextBlock Text="Denoise" Foreground="White" FontSize="11" VerticalAlignment="Center"/>
+                <!-- Column 3: Right sliders -->
+                <StackPanel Grid.Column="2" Spacing="3" Margin="10,0,0,0">
+                    <Button Content="Visible Text Preset" Click="AutoTextButton_Click"
+                            Background="#2d4a5a" Foreground="White" FontSize="10" Padding="6,2"
+                            HorizontalAlignment="Left"/>
+                    <Grid ColumnDefinitions="60,*,25">
+                        <TextBlock Text="Denoise" Foreground="White" FontSize="10" VerticalAlignment="Center"/>
                         <Slider x:Name="DenoiseSlider" Grid.Column="1" Minimum="0" Maximum="100" Value="0"/>
-                        <TextBlock x:Name="DenoiseValue" Grid.Column="2" Text="0" Foreground="Gray" FontSize="10" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="DenoiseValue" Grid.Column="2" Text="0" Foreground="Gray" FontSize="9" VerticalAlignment="Center"/>
                     </Grid>
-                    <Grid ColumnDefinitions="80,*,30" Margin="0,2">
-                        <TextBlock Text="Threshold" Foreground="White" FontSize="11" VerticalAlignment="Center"/>
+                    <Grid ColumnDefinitions="60,*,25">
+                        <TextBlock Text="Thresh" Foreground="White" FontSize="10" VerticalAlignment="Center"/>
                         <Slider x:Name="ThresholdSlider" Grid.Column="1" Minimum="0" Maximum="255" Value="0"/>
-                        <TextBlock x:Name="ThresholdValue" Grid.Column="2" Text="Off" Foreground="Gray" FontSize="10" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="ThresholdValue" Grid.Column="2" Text="Off" Foreground="Gray" FontSize="9" VerticalAlignment="Center"/>
                     </Grid>
-                    <Grid ColumnDefinitions="80,*,30" Margin="0,2">
-                        <TextBlock Text="Edge" Foreground="White" FontSize="11" VerticalAlignment="Center"/>
+                    <Grid ColumnDefinitions="60,*,25">
+                        <TextBlock Text="Edge" Foreground="White" FontSize="10" VerticalAlignment="Center"/>
                         <Slider x:Name="EdgeSlider" Grid.Column="1" Minimum="0" Maximum="100" Value="0"/>
-                        <TextBlock x:Name="EdgeValue" Grid.Column="2" Text="Off" Foreground="Gray" FontSize="10" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="EdgeValue" Grid.Column="2" Text="Off" Foreground="Gray" FontSize="9" VerticalAlignment="Center"/>
                     </Grid>
-                    <Grid ColumnDefinitions="80,*,30" Margin="0,2">
-                        <TextBlock Text="CLAHE" Foreground="White" FontSize="11" VerticalAlignment="Center"/>
+                    <Grid ColumnDefinitions="60,*,25">
+                        <TextBlock Text="CLAHE" Foreground="White" FontSize="10" VerticalAlignment="Center"/>
                         <Slider x:Name="ClaheSlider" Grid.Column="1" Minimum="0" Maximum="100" Value="0"/>
-                        <TextBlock x:Name="ClaheValue" Grid.Column="2" Text="Off" Foreground="Gray" FontSize="10" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="ClaheValue" Grid.Column="2" Text="Off" Foreground="Gray" FontSize="9" VerticalAlignment="Center"/>
                     </Grid>
                 </StackPanel>
             </Grid>
