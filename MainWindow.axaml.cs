@@ -36,6 +36,7 @@ public partial class MainWindow : Window
     private int numWindows = 4;
     private string selectedVideoFile = string.Empty;
     private string selectedRemotePath = string.Empty; // original UNC/remote path
+    private double _pendingSeekTime; // set by URL handler, applied after load
     private bool isVideoLoaded;
     private int expandedIndex = -1;
     private int currentWindowIndex;
@@ -140,7 +141,134 @@ public partial class MainWindow : Window
         };
 
         TestApiConnection();
+
+        // Handle command-line args: --path "..." --time 123
+        ProcessCommandLineArgs();
     }
+
+    private async void ProcessCommandLineArgs()
+    {
+        var args = Environment.GetCommandLineArgs();
+        string? path = null;
+        string? title = null;
+        double time = 0;
+
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--path" && i + 1 < args.Length)
+                path = args[++i];
+            else if (args[i] == "--title" && i + 1 < args.Length)
+                title = args[++i];
+            else if (args[i] == "--time" && i + 1 < args.Length)
+                double.TryParse(args[++i], System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out time);
+            else if (args[i].StartsWith("multiplayer://"))
+            {
+                // Parse multiplayer://play?title=...&path=...&time=...
+                try
+                {
+                    var uri = new Uri(args[i]);
+                    var queryParts = uri.Query.TrimStart('?').Split('&');
+                    foreach (var part in queryParts)
+                    {
+                        var kv = part.Split('=', 2);
+                        if (kv.Length == 2)
+                        {
+                            var key = Uri.UnescapeDataString(kv[0]);
+                            var val = Uri.UnescapeDataString(kv[1]);
+                            if (key == "path") path = val;
+                            else if (key == "title") title = val;
+                            else if (key == "time")
+                                double.TryParse(val, System.Globalization.NumberStyles.Float,
+                                    System.Globalization.CultureInfo.InvariantCulture, out time);
+                        }
+                    }
+                }
+                catch { }
+            }
+        }
+
+        _pendingSeekTime = time;
+
+        if (!string.IsNullOrEmpty(path))
+        {
+            await Task.Delay(500);
+            selectedRemotePath = path;
+            await DownloadAndPlay(path);
+        }
+        else if (!string.IsNullOrEmpty(title))
+        {
+            await Task.Delay(500);
+            // Search by title — user picks from results, pending seek applied after load
+            SearchTextBox.Text = title;
+            SearchButton_Click(null, new Avalonia.Interactivity.RoutedEventArgs());
+        }
+    }
+
+    private void RegisterUrlHandler_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                var exePath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "MultiPlayerAll.exe");
+
+                // Write registry entries for multiplayer:// protocol
+                var commands = new[]
+                {
+                    $"reg add HKCU\\Software\\Classes\\multiplayer /ve /d \"URL:MultiPlayerAll Protocol\" /f",
+                    $"reg add HKCU\\Software\\Classes\\multiplayer /v \"URL Protocol\" /d \"\" /f",
+                    $"reg add HKCU\\Software\\Classes\\multiplayer\\shell\\open\\command /ve /d \"\\\"{exePath}\\\" \\\"%1\\\"\" /f"
+                };
+
+                foreach (var cmd in commands)
+                {
+                    var proc = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = "cmd.exe",
+                        Arguments = $"/c {cmd}",
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    });
+                    proc?.WaitForExit(3000);
+                }
+
+                UrlStatusLabel.Text = "URL Handler Registered";
+            }
+            else if (OperatingSystem.IsMacOS())
+            {
+                // macOS handles this via Info.plist CFBundleURLTypes (already set in .app bundle)
+                UrlStatusLabel.Text = "Registered (via .app bundle)";
+            }
+            else
+            {
+                // Linux: create .desktop file
+                var desktopEntry = $"""
+                    [Desktop Entry]
+                    Type=Application
+                    Name=MultiPlayerAll
+                    Exec={Environment.ProcessPath ?? "MultiPlayerAll"} %u
+                    MimeType=x-scheme-handler/multiplayer;
+                    NoDisplay=true
+                    """;
+                var desktopPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".local", "share", "applications", "multiplayer-handler.desktop");
+                Directory.CreateDirectory(Path.GetDirectoryName(desktopPath)!);
+                File.WriteAllText(desktopPath, desktopEntry);
+
+                System.Diagnostics.Process.Start("xdg-mime",
+                    "default multiplayer-handler.desktop x-scheme-handler/multiplayer")?.WaitForExit(3000);
+
+                UrlStatusLabel.Text = "URL Handler Registered";
+            }
+        }
+        catch (Exception ex)
+        {
+            UrlStatusLabel.Text = $"Failed: {ex.Message}";
+            UrlStatusLabel.Foreground = Brushes.OrangeRed;
+        }
+    }
+
 
     private async void TestApiConnection()
     {
@@ -451,6 +579,14 @@ public partial class MainWindow : Window
             SetCurrentWindow(0);
             ApplyAudioRouting();
             PlayPauseButton.Content = "Play/Pause";
+
+            // Apply pending seek from URL handler
+            if (_pendingSeekTime > 0)
+            {
+                await Task.Delay(500);
+                JumpToTimeline(_pendingSeekTime);
+                _pendingSeekTime = 0;
+            }
 
             // Pre-generate thumbnails in the background so they're ready when user clicks Timeline
             _ = PreGenerateThumbnails();

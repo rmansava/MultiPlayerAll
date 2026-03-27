@@ -43,6 +43,12 @@
                 <TextBlock Text="MultiPlayer" Foreground="White" FontSize="14" FontWeight="Bold"
                            Margin="10,0,0,0" VerticalAlignment="Center"/>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,10,0" Spacing="0">
+                    <TextBlock x:Name="UrlStatusLabel" Text="" Foreground="GreenYellow" FontSize="10"
+                               VerticalAlignment="Center" Margin="0,0,5,0"/>
+                    <Button Content="Register URL Handler" FontSize="10" Height="22"
+                            Background="#444" Foreground="#aaa" BorderThickness="0"
+                            Padding="8,0" Margin="0,0,15,0"
+                            Click="RegisterUrlHandler_Click"/>
                     <Button Content="―" FontSize="14" Width="30" Height="30"
                             Background="Transparent" BorderThickness="0" Click="MinimizeButton_Click"/>
                     <Button x:Name="MaximizeRestoreButton" Content="☐" FontSize="14" Width="30" Height="30"
