@@ -146,6 +146,35 @@ public partial class MainWindow : Window
         ProcessCommandLineArgs();
     }
 
+    private void SetStatus(string text, string color = "Gray")
+    {
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+        {
+            StatusLabel.Text = text;
+            StatusLabel.Foreground = color switch
+            {
+                "Green" => Brushes.GreenYellow,
+                "Yellow" => Brushes.Yellow,
+                "Red" => Brushes.OrangeRed,
+                "Blue" => Brushes.DodgerBlue,
+                _ => Brushes.Gray
+            };
+
+            // Show/hide the big loading overlay
+            bool isLoading = color == "Blue" || color == "Yellow";
+            LoadingOverlay.IsVisible = isLoading;
+            if (isLoading)
+            {
+                LoadingStatusText.Text = text;
+                LoadingDetailText.Text = "";
+            }
+        }
+        else
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => SetStatus(text, color));
+        }
+    }
+
     private async void ProcessCommandLineArgs()
     {
         var args = Environment.GetCommandLineArgs();
@@ -296,6 +325,9 @@ public partial class MainWindow : Window
     private async Task DownloadAndPlay(string remotePath)
     {
         selectedRemotePath = remotePath;
+        SetStatus($"Loading: {Path.GetFileName(remotePath)}", "Blue");
+        LoadingDetailText.Text = remotePath;
+        StatusLabel.Text = remotePath;
 
         // If file is on a local drive (not UNC/network), play directly
         if (!remotePath.StartsWith("\\\\") && File.Exists(remotePath))
@@ -314,6 +346,7 @@ public partial class MainWindow : Window
         bool useStream = StreamRadio?.IsChecked == true;
         if (useStream && !File.Exists(localPath))
         {
+            SetStatus("Streaming...", "Blue");
             var streamUrl = $"{apiBaseUrl}/stream?path={Uri.EscapeDataString(remotePath)}";
             selectedVideoFile = streamUrl;
             await LoadVideoAsync(streamUrl);
@@ -322,6 +355,7 @@ public partial class MainWindow : Window
 
         if (File.Exists(localPath))
         {
+            SetStatus("Playing from cache", "Green");
             selectedVideoFile = localPath;
             await LoadVideoAsync(localPath);
             return;
@@ -503,21 +537,7 @@ public partial class MainWindow : Window
                 videoViews[i]?.DetachPlayer();
             DisposePlayers();
 
-            // Probe duration with a temporary mpv instance
-            File.AppendAllText(Path.Combine(CacheDir, "crash.log"), $"{DateTime.Now} Probing duration for {videoPath}\n");
-            totalDurationSec = await ProbeDuration(videoPath);
-            File.AppendAllText(Path.Combine(CacheDir, "crash.log"), $"{DateTime.Now} Duration={totalDurationSec}\n");
-            if (currentLoadVersion != loadVersion) return;
-            if (totalDurationSec <= 0)
-            {
-                File.AppendAllText(Path.Combine(CacheDir, "crash.log"), $"{DateTime.Now} Duration is 0, aborting\n");
-                return;
-            }
-
-            var segmentDurationSec = totalDurationSec / numWindows;
-            CalculateStartPositions(segmentDurationSec);
-            PositionSlider.Maximum = segmentDurationSec;
-            PositionSlider.Value = 0;
+            SetStatus("Loading video...", "Yellow");
 
             RefreshVideoLayout();
 
@@ -548,12 +568,42 @@ public partial class MainWindow : Window
             await Task.Delay(300);
             if (currentLoadVersion != loadVersion) return;
 
-            // NOW load files — render contexts should exist
+            // Load file into first player and get duration from it (no separate probe)
+            File.AppendAllText(Path.Combine(CacheDir, "crash.log"), $"{DateTime.Now} Loading video: {videoPath}\n");
             for (int i = 0; i < numWindows; i++)
                 players[i]?.LoadFile(videoPath);
 
+            // Wait for duration from the actual player
+            int maxWait = videoPath.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? 300 : 50;
+            for (int attempt = 0; attempt < maxWait; attempt++)
+            {
+                await Task.Delay(100);
+                if (players[0] != null)
+                {
+                    totalDurationSec = players[0]!.Duration;
+                    if (totalDurationSec > 0) break;
+                }
+                if (attempt > 0 && attempt % 20 == 0)
+                    File.AppendAllText(Path.Combine(CacheDir, "crash.log"),
+                        $"{DateTime.Now} Waiting for duration: attempt {attempt}\n");
+            }
+
+            File.AppendAllText(Path.Combine(CacheDir, "crash.log"), $"{DateTime.Now} Duration={totalDurationSec}\n");
+            if (currentLoadVersion != loadVersion) return;
+            if (totalDurationSec <= 0)
+            {
+                SetStatus("Failed to load video", "Red");
+                File.AppendAllText(Path.Combine(CacheDir, "crash.log"), $"{DateTime.Now} Duration is 0, aborting\n");
+                return;
+            }
+
+            var segmentDurationSec = totalDurationSec / numWindows;
+            CalculateStartPositions(segmentDurationSec);
+            PositionSlider.Maximum = segmentDurationSec;
+            PositionSlider.Value = 0;
+
             // Wait for players to start decoding
-            await Task.Delay(1000);
+            await Task.Delay(500);
             if (currentLoadVersion != loadVersion) return;
 
             // Seek each player to its segment start position with retry
@@ -594,6 +644,9 @@ public partial class MainWindow : Window
             SetCurrentWindow(0);
             ApplyAudioRouting();
             PlayPauseButton.Content = "Play/Pause";
+            var duration = TimeSpan.FromSeconds(totalDurationSec);
+            var displayPath = selectedRemotePath ?? selectedVideoFile ?? "";
+            SetStatus($"Playing — {duration:hh\\:mm\\:ss}  |  {displayPath}", "Green");
 
             // Apply pending seek from URL handler
             if (_pendingSeekTime > 0)
@@ -608,6 +661,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            SetStatus($"Error: {ex.Message}", "Red");
             File.AppendAllText(Path.Combine(CacheDir, "crash.log"), $"{DateTime.Now} LoadVideo: {ex}\n\n");
         }
         finally
@@ -625,15 +679,26 @@ public partial class MainWindow : Window
             {
                 probe.SetOption("vo", "null");
                 probe.SetOption("ao", "null");
+                probe.SetOption("ytdl", "no");
                 probe.Initialize();
                 probe.LoadFile(videoPath);
 
-                // Wait for duration to be available
-                for (int attempt = 0; attempt < 50; attempt++)
+                // Wait for duration to be available (up to 30s for HTTP streams)
+                int maxAttempts = videoPath.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? 300 : 50;
+                for (int attempt = 0; attempt < maxAttempts; attempt++)
                 {
                     Thread.Sleep(100);
                     var dur = probe.Duration;
                     if (dur > 0) return dur;
+
+                    // Log progress every 2 seconds
+                    if (attempt > 0 && attempt % 20 == 0)
+                    {
+                        var idle = probe.GetPropertyString("idle-active");
+                        var path = probe.GetPropertyString("path");
+                        File.AppendAllText(Path.Combine(CacheDir, "crash.log"),
+                            $"{DateTime.Now} Probe attempt {attempt}: dur={dur} idle={idle} path={path}\n");
+                    }
                 }
                 return 0;
             }

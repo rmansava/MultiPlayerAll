@@ -85,6 +85,13 @@ public static class MpvInterop
         int format, out int data);
 
     [DllImport(LibMpv, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr mpv_get_property_string(IntPtr ctx,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+
+    [DllImport(LibMpv, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void mpv_free(IntPtr data);
+
+    [DllImport(LibMpv, CallingConvention = CallingConvention.Cdecl)]
     public static extern int mpv_command(IntPtr ctx, IntPtr[] args);
 
     [DllImport(LibMpv, CallingConvention = CallingConvention.Cdecl)]
@@ -185,6 +192,15 @@ public class MpvPlayer : IDisposable
     {
         var err = MpvInterop.mpv_get_property(_handle, name, MpvInterop.MPV_FORMAT_INT64, out long value);
         return err >= 0 ? value : 0;
+    }
+
+    public string GetPropertyString(string name)
+    {
+        var ptr = MpvInterop.mpv_get_property_string(_handle, name);
+        if (ptr == IntPtr.Zero) return "";
+        var val = Marshal.PtrToStringUTF8(ptr) ?? "";
+        MpvInterop.mpv_free(ptr);
+        return val;
     }
 
     public void Command(params string[] args)

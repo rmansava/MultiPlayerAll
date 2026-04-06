@@ -36,7 +36,7 @@
         </Grid>
 
         <!-- Main Content Area -->
-        <Grid Grid.Column="1" RowDefinitions="30,Auto,Auto,Auto,*,Auto">
+        <Grid Grid.Column="1" RowDefinitions="30,Auto,Auto,Auto,*,Auto,Auto">
 
             <!-- Custom Title Bar -->
             <Grid Grid.Row="0" Background="#333333" PointerPressed="TitleBar_PointerPressed">
@@ -110,6 +110,17 @@
 
             <!-- Video Display Container -->
             <Grid x:Name="VideoContainer" Grid.Row="4" Background="Black" ClipToBounds="True">
+                <!-- Loading overlay (hidden by default) -->
+                <Border x:Name="LoadingOverlay" IsVisible="False" Background="#CC000000" ZIndex="99"
+                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                        <TextBlock x:Name="LoadingStatusText" Text="Loading video..."
+                                   Foreground="White" FontSize="24" FontWeight="Bold"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="LoadingDetailText" Text=""
+                                   Foreground="Gray" FontSize="14" HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
                 <!-- Download overlay (hidden by default) -->
                 <Border x:Name="DownloadOverlay" IsVisible="False" Background="#DD222222" ZIndex="100"
                         HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -127,6 +138,10 @@
                 </Border>
             </Grid>
 
+            <!-- Status Bar -->
+            <Border Grid.Row="6" Background="#1a1a1a" Padding="10,4">
+                <TextBlock x:Name="StatusLabel" Text="Ready" Foreground="Gray" FontSize="11"/>
+            </Border>
 
         </Grid>
     </Grid>
