@@ -114,6 +114,7 @@ public partial class MainWindow : Window
 
         Directory.CreateDirectory(CacheDir);
         LoadPrefs();
+        LoadMountMappings();
 
         // Save prefs when mode changes
         StreamRadio.Checked += (_, _) => SavePrefs();
@@ -322,6 +323,176 @@ public partial class MainWindow : Window
 
     // ── Download & Play ─────────────────────────────────────────────────
 
+    // Cache results so we don't re-check slow NAS hostnames repeatedly
+    private readonly Dictionary<string, bool> _hostReachableCache = new();
+
+    // Per-OS mount mappings loaded from mounts.json next to the exe.
+    // Each entry maps a UNC prefix like "\\diskstation\triviavideo\" to a local mount like "/Volumes/triviavideo/".
+    private Dictionary<string, string> _mountMappings = new();
+
+    private void LoadMountMappings()
+    {
+        try
+        {
+            var configPath = Path.Combine(AppContext.BaseDirectory, "mounts.json");
+            if (!File.Exists(configPath)) return;
+
+            var json = File.ReadAllText(configPath);
+            var doc = System.Text.Json.JsonDocument.Parse(json);
+
+            string osKey = OperatingSystem.IsWindows() ? "windows"
+                         : OperatingSystem.IsMacOS() ? "mac"
+                         : OperatingSystem.IsLinux() ? "linux"
+                         : "";
+
+            if (string.IsNullOrEmpty(osKey)) return;
+            if (!doc.RootElement.TryGetProperty(osKey, out var osMap)) return;
+
+            foreach (var prop in osMap.EnumerateObject())
+            {
+                _mountMappings[prop.Name] = prop.Value.GetString() ?? "";
+            }
+
+            File.AppendAllText(Path.Combine(CacheDir, "crash.log"),
+                $"{DateTime.Now} Loaded {_mountMappings.Count} mount mappings for {osKey}\n");
+
+            // On non-Windows, verify mount points actually exist and warn the user if not
+            if (!OperatingSystem.IsWindows())
+            {
+                var missing = new List<string>();
+                foreach (var (uncPrefix, localPrefix) in _mountMappings)
+                {
+                    // Check the mount root (strip trailing slash, walk up to find existing dir)
+                    var checkPath = localPrefix.TrimEnd('/', '\\');
+                    if (!Directory.Exists(checkPath))
+                        missing.Add($"{uncPrefix} → {localPrefix}");
+                }
+
+                if (missing.Count > 0)
+                {
+                    var warning = $"Mount points not found:\n  " + string.Join("\n  ", missing) +
+                                  "\n\nMount the SMB shares first, then restart. Examples:\n" +
+                                  (OperatingSystem.IsMacOS()
+                                      ? "  Finder → Go → Connect to Server → smb://diskstation\n"
+                                      : "  sudo mount.cifs //diskstation/triviavideo /mnt/diskstation/triviavideo -o username=USER\n" +
+                                        "  Or add to /etc/fstab for auto-mount on boot.\n") +
+                                  "\nFalling back to API streaming for now.";
+
+                    File.AppendAllText(Path.Combine(CacheDir, "crash.log"),
+                        $"{DateTime.Now} {warning}\n");
+
+                    // Show in UI on next idle
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                        SetStatus($"Warning: {missing.Count} mount(s) not mounted — using API. See crash.log.", "Yellow"));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            File.AppendAllText(Path.Combine(CacheDir, "crash.log"),
+                $"{DateTime.Now} Failed to load mounts.json: {ex.Message}\n");
+        }
+    }
+
+    /// <summary>
+    /// Translate a UNC path to a local mount point using the configured mappings.
+    /// Returns null if no mapping matches.
+    /// </summary>
+    private string? ApplyMountMapping(string remotePath)
+    {
+        foreach (var (uncPrefix, localPrefix) in _mountMappings)
+        {
+            if (remotePath.StartsWith(uncPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                var relative = remotePath.Substring(uncPrefix.Length);
+                // Convert path separators for non-Windows
+                if (!OperatingSystem.IsWindows())
+                    relative = relative.Replace('\\', '/');
+                return localPrefix + relative;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Check if a UNC host is reachable (root share exists). Cached per session.
+    /// </summary>
+    private bool IsHostReachable(string remotePath, int timeoutMs = 30000)
+    {
+        // Extract \\host\share from \\host\share\path\to\file
+        if (!remotePath.StartsWith("\\\\")) return false;
+        var parts = remotePath.Substring(2).Split('\\', 3);
+        if (parts.Length < 2) return false;
+        var sharePath = $"\\\\{parts[0]}\\{parts[1]}";
+
+        if (_hostReachableCache.TryGetValue(sharePath, out var cached))
+            return cached;
+
+        bool reachable = false;
+        try
+        {
+            var task = Task.Run(() => Directory.Exists(sharePath));
+            reachable = task.Wait(timeoutMs) && task.Result;
+        }
+        catch { }
+
+        _hostReachableCache[sharePath] = reachable;
+        return reachable;
+    }
+
+    /// <summary>
+    /// Try to find the file directly on the local network. Tries the original path,
+    /// then alternate hostnames (\\diskstation, \\diskstation-local).
+    /// Returns null if no direct access is possible.
+    /// </summary>
+    private string? TryDirectAccess(string remotePath)
+    {
+        if (!remotePath.StartsWith("\\\\")) return null;
+
+        bool TryPath(string path, int timeoutMs = 30000)
+        {
+            try
+            {
+                var task = Task.Run(() => File.Exists(path));
+                return task.Wait(timeoutMs) && task.Result;
+            }
+            catch { return false; }
+        }
+
+        // First try the configured mount mapping (works on Mac/Linux, also Windows if mapped to a drive letter)
+        var mapped = ApplyMountMapping(remotePath);
+        if (mapped != null)
+        {
+            SetStatus($"Trying mount mapping: {mapped}", "Blue");
+            if (TryPath(mapped)) return mapped;
+        }
+
+        // On non-Windows, UNC paths don't work directly — give up here
+        if (!OperatingSystem.IsWindows()) return null;
+
+        // Only try the original path if its host is reachable
+        SetStatus($"Trying direct access: {remotePath}", "Blue");
+        if (IsHostReachable(remotePath) && TryPath(remotePath)) return remotePath;
+
+        // Try swapping diskstation <-> diskstation-local
+        var swaps = new (string from, string to)[] {
+            (@"\\diskstation\", @"\\diskstation-local\"),
+            (@"\\diskstation-local\", @"\\diskstation\"),
+        };
+
+        foreach (var (from, to) in swaps)
+        {
+            if (remotePath.StartsWith(from, StringComparison.OrdinalIgnoreCase))
+            {
+                var alt = to + remotePath.Substring(from.Length);
+                SetStatus($"Trying alternate host: {alt}", "Blue");
+                if (IsHostReachable(alt) && TryPath(alt)) return alt;
+            }
+        }
+
+        return null;
+    }
+
     private async Task DownloadAndPlay(string remotePath)
     {
         selectedRemotePath = remotePath;
@@ -332,8 +503,20 @@ public partial class MainWindow : Window
         // If file is on a local drive (not UNC/network), play directly
         if (!remotePath.StartsWith("\\\\") && File.Exists(remotePath))
         {
+            SetStatus($"Playing locally — {remotePath}", "Green");
             selectedVideoFile = remotePath;
             await LoadVideoAsync(remotePath);
+            return;
+        }
+
+        // Try direct network share access (faster than HTTP streaming when on the same LAN)
+        SetStatus($"Checking direct access: {remotePath}", "Blue");
+        var directPath = await Task.Run(() => TryDirectAccess(remotePath));
+        if (directPath != null)
+        {
+            SetStatus($"Playing from network share — {directPath}", "Green");
+            selectedVideoFile = directPath;
+            await LoadVideoAsync(directPath);
             return;
         }
 
@@ -342,25 +525,26 @@ public partial class MainWindow : Window
         var pathHash = remotePath.GetHashCode().ToString("X8");
         var localPath = Path.Combine(CacheDir, $"{pathHash}_{SanitizeFileName(fileName)}");
 
+        if (File.Exists(localPath))
+        {
+            SetStatus($"Playing from cache — {localPath}", "Green");
+            selectedVideoFile = localPath;
+            await LoadVideoAsync(localPath);
+            return;
+        }
+
         // Stream mode: play directly from HTTP URL (instant start)
         bool useStream = StreamRadio?.IsChecked == true;
-        if (useStream && !File.Exists(localPath))
+        if (useStream)
         {
-            SetStatus("Streaming...", "Blue");
+            SetStatus($"Streaming via API — {remotePath}", "Blue");
             var streamUrl = $"{apiBaseUrl}/stream?path={Uri.EscapeDataString(remotePath)}";
             selectedVideoFile = streamUrl;
             await LoadVideoAsync(streamUrl);
             return;
         }
 
-        if (File.Exists(localPath))
-        {
-            SetStatus("Playing from cache", "Green");
-            selectedVideoFile = localPath;
-            await LoadVideoAsync(localPath);
-            return;
-        }
-
+        SetStatus($"Downloading via API — {remotePath}", "Blue");
         downloadCts = new CancellationTokenSource();
         DownloadOverlay.IsVisible = true;
         DownloadStatusText.Text = $"Downloading: {fileName}";
@@ -645,8 +829,17 @@ public partial class MainWindow : Window
             ApplyAudioRouting();
             PlayPauseButton.Content = "Play/Pause";
             var duration = TimeSpan.FromSeconds(totalDurationSec);
-            var displayPath = selectedRemotePath ?? selectedVideoFile ?? "";
-            SetStatus($"Playing — {duration:hh\\:mm\\:ss}  |  {displayPath}", "Green");
+            string source;
+            if (videoPath.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                source = "streaming via API";
+            else if (videoPath.StartsWith("\\\\"))
+                source = "network share";
+            else if (videoPath.StartsWith(CacheDir, StringComparison.OrdinalIgnoreCase))
+                source = "cache";
+            else
+                source = "local file";
+            var displayPath = selectedRemotePath ?? videoPath;
+            SetStatus($"Playing ({source}) — {duration:hh\\:mm\\:ss}  |  {displayPath}", "Green");
 
             // Apply pending seek from URL handler
             if (_pendingSeekTime > 0)

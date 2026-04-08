@@ -19,6 +19,7 @@
   <!-- Copy libmpv-2.dll to output -->
   <ItemGroup>
     <None Include="libmpv-2.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="mounts.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- Include setup guides -->

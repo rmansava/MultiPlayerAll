@@ -8,7 +8,7 @@
         ExtendClientAreaTitleBarHeightHint="30"
         Background="#222222">
 
-    <Grid ColumnDefinitions="200,*">
+    <Grid ColumnDefinitions="250,5,*">
 
         <!-- Left Panel: Search and Video List -->
         <Grid Grid.Column="0" Margin="10" RowDefinitions="Auto,Auto,Auto,*">
@@ -35,8 +35,13 @@
             </DataGrid>
         </Grid>
 
+        <!-- Splitter for resizing the search panel -->
+        <GridSplitter Grid.Column="1" Width="5" Background="#444"
+                      ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"
+                      HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+
         <!-- Main Content Area -->
-        <Grid Grid.Column="1" RowDefinitions="30,Auto,Auto,Auto,*,Auto,Auto">
+        <Grid Grid.Column="2" RowDefinitions="30,Auto,Auto,Auto,*,Auto,Auto">
 
             <!-- Custom Title Bar -->
             <Grid Grid.Row="0" Background="#333333" PointerPressed="TitleBar_PointerPressed">
