@@ -22,6 +22,21 @@
     <None Include="mounts.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- Bundle ffmpeg per runtime for local Timeline thumbnail generation -->
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x64'">
+    <None Include="ffmpeg-bin\ffmpeg.exe" Link="ffmpeg.exe" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'osx-arm64' Or '$(RuntimeIdentifier)' == 'osx-x64'">
+    <None Include="ffmpeg-bin\ffmpeg-osx" Link="ffmpeg" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-x64'">
+    <None Include="ffmpeg-bin\ffmpeg-linux" Link="ffmpeg" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <!-- Default: when building without a specific RID (dotnet build for local dev on Windows) include the Windows ffmpeg -->
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == '' And '$(OS)' == 'Windows_NT'">
+    <None Include="ffmpeg-bin\ffmpeg.exe" Link="ffmpeg.exe" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- Include setup guides -->
   <ItemGroup>
     <Content Include="SETUP-Windows.md" CopyToOutputDirectory="PreserveNewest" />

@@ -5,3 +5,4 @@ obj/
 .codex-build-check/
 libmpv-2.dll
 publish/
+ffmpeg-bin/

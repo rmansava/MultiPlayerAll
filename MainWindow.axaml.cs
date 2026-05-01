@@ -470,24 +470,26 @@ public partial class MainWindow : Window
         // On non-Windows, UNC paths don't work directly — give up here
         if (!OperatingSystem.IsWindows()) return null;
 
-        // Only try the original path if its host is reachable
+        // Try the UNC path directly
         SetStatus($"Trying direct access: {remotePath}", "Blue");
         if (IsHostReachable(remotePath) && TryPath(remotePath)) return remotePath;
 
-        // Try swapping diskstation <-> diskstation-local
-        var swaps = new (string from, string to)[] {
-            (@"\\diskstation\", @"\\diskstation-local\"),
-            (@"\\diskstation-local\", @"\\diskstation\"),
-        };
-
-        foreach (var (from, to) in swaps)
+        // Trivia HQ fallback: diskstation movies folder lives on truenas2 with same subfolder structure
+        const string hqFrom = @"\\diskstation\triviavideo\movies recorded with CC\";
+        const string hqTo = @"\\truenas2\NAS8\rickvids\";
+        if (remotePath.StartsWith(hqFrom, StringComparison.OrdinalIgnoreCase))
         {
-            if (remotePath.StartsWith(from, StringComparison.OrdinalIgnoreCase))
-            {
-                var alt = to + remotePath.Substring(from.Length);
-                SetStatus($"Trying alternate host: {alt}", "Blue");
-                if (IsHostReachable(alt) && TryPath(alt)) return alt;
-            }
+            var hqPath = hqTo + remotePath.Substring(hqFrom.Length);
+            SetStatus($"Trying HQ fallback: {hqPath}", "Blue");
+            if (IsHostReachable(hqPath) && TryPath(hqPath)) return hqPath;
+        }
+
+        // truenas → truenas2 fallback: same folder structure after the hostname
+        if (remotePath.StartsWith(@"\\truenas\", StringComparison.OrdinalIgnoreCase))
+        {
+            var altPath = @"\\truenas2\" + remotePath.Substring(@"\\truenas\".Length);
+            SetStatus($"Trying truenas2 fallback: {altPath}", "Blue");
+            if (IsHostReachable(altPath) && TryPath(altPath)) return altPath;
         }
 
         return null;
@@ -735,6 +737,9 @@ public partial class MainWindow : Window
                 player.SetOption("osc", "no");
                 player.SetOption("input-default-bindings", "no");
                 player.SetOption("input-vo-keyboard", "no");
+                // Disable hardware decoding — avoids AMD driver crashes on resize (atio6axx.dll AV)
+                // Small CPU cost, much more stable across GPUs
+                player.SetOption("hwdec", "no");
                 player.Initialize();
 
                 player.Volume = (i == currentWindowIndex && !isMuted) ? currentVolume : 0;
@@ -1333,8 +1338,12 @@ public partial class MainWindow : Window
     private void OpenTimelineBrowser()
     {
         if (!isVideoLoaded) return;
-        var remotePath = !string.IsNullOrEmpty(selectedRemotePath) ? selectedRemotePath : selectedVideoFile;
-        var browser = new TimelineBrowser(remotePath, totalDurationSec, this, apiBaseUrl);
+        // Prefer the resolved path the player actually found the video at,
+        // so the API can locate the file the same way.
+        var pathForApi = !string.IsNullOrEmpty(selectedVideoFile) && selectedVideoFile.StartsWith("\\\\")
+            ? selectedVideoFile
+            : (!string.IsNullOrEmpty(selectedRemotePath) ? selectedRemotePath : selectedVideoFile);
+        var browser = new TimelineBrowser(pathForApi, totalDurationSec, this, apiBaseUrl);
         browser.Show();
     }
 

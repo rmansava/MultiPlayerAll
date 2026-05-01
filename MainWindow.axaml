@@ -3,6 +3,7 @@
         x:Class="MultiPlayerAll.MainWindow"
         Title="MultiPlayer" Width="1280" Height="700"
         WindowStartupLocation="CenterScreen"
+        WindowState="Maximized"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaChromeHints="NoChrome"
         ExtendClientAreaTitleBarHeightHint="30"
@@ -56,7 +57,7 @@
                             Click="RegisterUrlHandler_Click"/>
                     <Button Content="―" FontSize="14" Width="30" Height="30"
                             Background="Transparent" BorderThickness="0" Click="MinimizeButton_Click"/>
-                    <Button x:Name="MaximizeRestoreButton" Content="☐" FontSize="14" Width="30" Height="30"
+                    <Button x:Name="MaximizeRestoreButton" Content="❐" FontSize="14" Width="30" Height="30"
                             Background="Transparent" BorderThickness="0" Click="MaximizeRestoreButton_Click"/>
                     <Button Content="✕" FontSize="14" Width="30" Height="30"
                             Background="Transparent" BorderThickness="0" Click="CloseButton_Click"/>

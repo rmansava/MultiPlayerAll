@@ -1,12 +1,7 @@
 {
-  "_comment": "Map UNC paths from the database to local mount points per OS. Direct access is faster than streaming via the API.",
-  "_example_mac": "On Mac, mount via Finder > Connect to Server > smb://diskstation. Default mount is /Volumes/triviavideo.",
-  "_example_linux": "On Linux, mount via mount.cifs or fstab to /mnt/diskstation/triviavideo etc.",
-  "_example_windows": "On Windows you can also map a drive letter (e.g. Z:) for faster access.",
+  "_comment": "Map UNC paths to local mount points per OS. Only needed on Mac/Linux where UNC paths don't work natively.",
 
   "windows": {
-    "\\\\diskstation\\triviavideo\\": "Z:\\",
-    "\\\\truenas\\media\\": "Y:\\"
   },
   "mac": {
     "\\\\diskstation\\triviavideo\\": "/Volumes/triviavideo/",
